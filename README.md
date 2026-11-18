@@ -1,5 +1,10 @@
 # 记一笔（youshu-ledger）
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/Lulize25/youshu-ledger)](https://github.com/Lulize25/youshu-ledger/releases)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?logo=kotlin&logoColor=white)](https://kotlinlang.org)
+[![Android](https://img.shields.io/badge/Android-9.0%2B-3DDC84?logo=android&logoColor=white)](https://developer.android.com)
+
 一个纯离线的安卓记账应用。核心特性：**余额从「启用日期 + 期初余额」起算，早于启用日期的补录流水只进报表、不动余额**。
 
 - 技术栈：Kotlin + Jetpack Compose（Material 3）+ Room（SQLite）+ MVVM + Coroutines/Flow
