@@ -3,6 +3,9 @@ package com.youshu.ledger.data
 import android.content.Context
 import com.youshu.ledger.data.local.db.LedgerDatabase
 import com.youshu.ledger.data.local.seed.DefaultDataSeeder
+import com.youshu.ledger.data.repository.AccountRepository
+import com.youshu.ledger.data.repository.BookRepository
+import com.youshu.ledger.data.repository.CategoryRepository
 import com.youshu.ledger.data.repository.TransactionRepository
 import com.youshu.ledger.data.settings.SettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +33,10 @@ class AppContainer(context: Context) {
 
     /** 流水仓库（余额/补录核心规则的落地入口） */
     val transactionRepository = TransactionRepository(transactionDao, settingsStore)
+
+    val bookRepository = BookRepository(bookDao, settingsStore)
+    val accountRepository = AccountRepository(accountDao, transactionDao)
+    val categoryRepository = CategoryRepository(categoryDao)
 
     val filesDir = context.filesDir
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 拍照临时文件（缓存目录） -->
+    <cache-path name="captures" path="." />
+    <!-- 记账附件（私有目录，仅本应用可访问） -->
+    <files-path name="attachments" path="attachments/" />
+</paths>
