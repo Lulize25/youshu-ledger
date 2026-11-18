@@ -238,6 +238,44 @@ interface TransactionDao {
     )
     suspend fun sumByDay(bookId: Long, type: TxnType, start: Long, end: Long): List<DaySum>
 
+    /** 区间内退款合计（归属原支出的业务日期） */
+    @Query(
+        """SELECT COALESCE(SUM(r.amount), 0) FROM refund_records r
+             INNER JOIN transactions t ON t.id = r.transactionId
+             WHERE t.bookId = :bookId AND t.type = 'EXPENSE'
+               AND t.businessDate >= :start AND t.businessDate <= :end""",
+    )
+    suspend fun sumRefundsInRange(bookId: Long, start: Long, end: Long): Long
+
+    /** 区间内报销合计（归属原支出的业务日期） */
+    @Query(
+        """SELECT COALESCE(SUM(r.amount), 0) FROM reimburse_records r
+             INNER JOIN transactions t ON t.id = r.transactionId
+             WHERE t.bookId = :bookId AND t.type = 'EXPENSE'
+               AND t.businessDate >= :start AND t.businessDate <= :end""",
+    )
+    suspend fun sumReimbursementsInRange(bookId: Long, start: Long, end: Long): Long
+
+    /** 区间内代付/已收回合计 */
+    @Query(
+        """SELECT COALESCE(SUM(advanceAmount), 0) FROM transactions
+             WHERE bookId = :bookId AND type = 'EXPENSE' AND businessDate >= :start AND businessDate <= :end""",
+    )
+    suspend fun sumAdvanceInRange(bookId: Long, start: Long, end: Long): Long
+
+    @Query(
+        """SELECT COALESCE(SUM(recoveredAmount), 0) FROM transactions
+             WHERE bookId = :bookId AND type = 'EXPENSE' AND businessDate >= :start AND businessDate <= :end""",
+    )
+    suspend fun sumRecoveredInRange(bookId: Long, start: Long, end: Long): Long
+
+    /** 应收总额（别人欠我）= Σ(代付 − 已收回)，全账本累计 */
+    @Query(
+        """SELECT COALESCE(SUM(advanceAmount - recoveredAmount), 0) FROM transactions
+             WHERE bookId = :bookId AND type = 'EXPENSE'""",
+    )
+    suspend fun receivableTotal(bookId: Long): Long
+
     // ---------- 写入 ----------
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -309,6 +347,15 @@ interface BudgetDao {
 
     @Delete
     suspend fun delete(budget: BudgetEntity)
+
+    @Query("DELETE FROM budgets WHERE bookId = :bookId AND yearMonth = :yearMonth AND categoryId IS NULL")
+    suspend fun deleteTotal(bookId: Long, yearMonth: String)
+
+    @Query("DELETE FROM budgets WHERE bookId = :bookId AND yearMonth = :yearMonth AND categoryId = :categoryId")
+    suspend fun deleteCategoryBudget(bookId: Long, yearMonth: String, categoryId: Long)
+
+    @Query("SELECT * FROM budgets WHERE bookId = :bookId AND yearMonth = :yearMonth AND categoryId = :categoryId LIMIT 1")
+    suspend fun getCategoryBudget(bookId: Long, yearMonth: String, categoryId: Long): BudgetEntity?
 }
 
 data class CategorySum(val categoryId: Long, val total: Long)

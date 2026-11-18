@@ -5,6 +5,7 @@ import com.youshu.ledger.data.local.db.LedgerDatabase
 import com.youshu.ledger.data.local.seed.DefaultDataSeeder
 import com.youshu.ledger.data.repository.AccountRepository
 import com.youshu.ledger.data.repository.BookRepository
+import com.youshu.ledger.data.repository.BudgetRepository
 import com.youshu.ledger.data.repository.CategoryRepository
 import com.youshu.ledger.data.repository.TransactionRepository
 import com.youshu.ledger.data.settings.SettingsStore
@@ -37,6 +38,7 @@ class AppContainer(context: Context) {
     val bookRepository = BookRepository(bookDao, settingsStore)
     val accountRepository = AccountRepository(accountDao, transactionDao)
     val categoryRepository = CategoryRepository(categoryDao)
+    val budgetRepository = BudgetRepository(budgetDao)
 
     val filesDir = context.filesDir
 
