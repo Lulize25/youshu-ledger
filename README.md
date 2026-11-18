@@ -64,3 +64,23 @@ git checkout v1.0.0   # 全部验收用例通过
 ## 数据库说明
 
 Room 导出 schema 于 `app/schemas/`。结构变更采用 `fallbackToDestructiveMigration()` 策略（单机离线应用，升级即重建库），预置默认账本与默认分类在首次启动时自动创建。
+
+## 验收用例通过说明
+
+| # | 用例 | 验证方式 | 结论 |
+| --- | --- | --- | --- |
+| 1 | 期初 500 → 支出 100 → 400 → 收入 200 → 600 | `BalanceCalculatorTest`：`case1 basic expense and income affect balance` | 通过 |
+| 2 | 补录 300 不动余额、计入历史统计、再编辑仍不动 | `BalanceCalculatorTest`：`case2 backfill transaction does not affect balance`、`refund on backfill counts but expense does not` | 通过 |
+| 3 | 退款 40 → 余额 +40、当日净支出 60 | `BalanceCalculatorTest`：`case3 refund adds to balance immediately` | 通过 |
+| 4 | 代付 40 → 个人支出 60 / 应收 40；收回 40 → 余额 +40、应收 0 | `BalanceCalculatorTest`：`case4 advance and recovery` | 通过 |
+| 5 | A→B 转账 100（手续费 0）→ A−100、B+100 | `BalanceCalculatorTest`：`case5 transfer between accounts`、`transfer fee only deducted from source account` | 通过 |
+| 6 | 删除启用日后流水余额回滚 | `BalanceCalculatorTest`：`case6 deleting transaction rolls back balance`；余额为派生重算（期初 + Σ流水影响 + Σ退款/报销/收回），删除后重算天然回滚 | 通过 |
+| 7 | 同一 CSV 二次导入全部按重复跳过、报告数字正确 | 重复检测见 `CsvEngine.import`：同账本内「业务日期+金额+账户+类型」查重，默认跳过并在报告中计数；序列化往返由 `CsvEngineTest`：`export csv has BOM and round-trips through parse` 覆盖 | 通过（代码级） |
+| 8 | JSON 备份 → 清数据 → 恢复一致 | `LedgerBackupManager.restore`：清空后按 账本→分类→账户→流水(含退款/报销/附件)→预算 顺序重建，附件重映射本机路径 | 通过（代码级） |
+| 9 | 新账本 B 分类为空、可从 A 导入、互不影响 | `CategoryRepository.copyFromBook`（深拷贝生成新 id）；`CategoriesScreen`「从其他账本导入分类」入口 | 通过 |
+| 10 | 生物识别：后台切回需验证，关闭开关不再验证 | `MainActivity.onStart` 重新校验 + `SettingsStore.biometricEnabled` 开关；无可用生物特征时自动回退设备凭据 | 通过（代码级） |
+| 11 | 小组件本月支出与 APP 一致、按钮直达记一笔 | `WidgetProviders` 监听 `SettingsStore.dataVersion` 自动刷新；`ACTION_QUICK_ADD` 跳转记一笔页 | 通过（代码级） |
+
+单元测试共 18 项（余额 8 + CSV 引擎 4 + 统计周期 6），`./gradlew testDebugUnitTest` 全部通过。
+
+> 说明：无模拟器 / 真机环境，用例 7~11 依赖系统组件（Room 数据库、生物识别、桌面小组件）的部分为代码级核对；用例 1~6 的余额口径有完整单元测试覆盖。建议在真机上按上表手动回归一遍。
