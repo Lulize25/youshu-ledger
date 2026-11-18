@@ -1,7 +1,6 @@
 package com.youshu.ledger.domain.balance
 
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AccountType
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
@@ -28,7 +27,7 @@ class BalanceCalculatorTest {
         .toInstant().toEpochMilli()
 
     private val account = AccountEntity(
-        id = 1L, bookId = 1L, name = "微信", type = AccountType.WECHAT,
+        id = 1L, bookId = 1L, name = "微信", iconKey = "wechat",
         initialBalance = 500_00, enableDate = enableDate, sortOrder = 0, archived = false,
     )
 

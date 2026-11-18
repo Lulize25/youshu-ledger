@@ -2,7 +2,6 @@ package com.youshu.ledger.data.io
 
 import com.youshu.ledger.data.local.dao.TransactionDao
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AccountType
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
@@ -200,11 +199,11 @@ object CsvEngine {
                 existing ?: AccountEntity(
                     id = accountDao.upsert(
                         AccountEntity(
-                            id = 0, bookId = bookId, name = name, type = AccountType.OTHER,
+                            id = 0, bookId = bookId, name = name, iconKey = "other",
                             initialBalance = 0, enableDate = txnDate, sortOrder = 0, archived = false,
                         ),
                     ),
-                    bookId = bookId, name = name, type = AccountType.OTHER,
+                    bookId = bookId, name = name, iconKey = "other",
                     initialBalance = 0, enableDate = txnDate, sortOrder = 0, archived = false,
                 )
             }

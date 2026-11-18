@@ -110,8 +110,8 @@ fun RecordScreen(
     var showDatePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    // 金额输入框实时显示
-    var amountText by remember { mutableStateOf("") }
+    // 金额输入框实时显示（草稿恢复时取已保存的金额文本）
+    var amountText by remember { mutableStateOf(vm.restoredAmountText ?: "") }
     val amountRefresh = remember { mutableStateOf(0) }
 
     // 附件：相册多选
@@ -356,12 +356,13 @@ fun RecordScreen(
     }
 }
 
-/** 把键盘输入的金额字符串同步进 ViewModel 的 AmountInputState */
+/** 把键盘输入的金额字符串同步进 ViewModel 的 AmountInputState，并写入草稿 */
 @Composable
 private fun LaunchedAmountSync(text: String, vm: RecordViewModel) {
     androidx.compose.runtime.LaunchedEffect(text) {
         vm.amountInput.clear()
         text.forEach { c -> vm.amountInput.append(c) }
+        vm.persistDraft()
     }
 }
 
@@ -528,7 +529,7 @@ private fun AccountPicker(
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             accounts.forEach { acc ->
                 DropdownMenuItem(
-                    text = { Text("${acc.name}（余额可能为负，信用卡正常）".takeIf { acc.type.name == "CREDIT_CARD" } ?: acc.name) },
+                    text = { Text("${acc.name}（余额可能为负，信用卡正常）".takeIf { acc.iconKey == "credit" } ?: acc.name) },
                     onClick = { onSelect(acc.id); expanded = false },
                 )
             }

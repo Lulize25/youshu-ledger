@@ -1,7 +1,6 @@
 package com.youshu.ledger.data.local.db
 
 import androidx.room.TypeConverter
-import com.youshu.ledger.data.local.entity.AccountType
 import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.entity.TxnType
 
@@ -19,10 +18,4 @@ class Converters {
 
     @TypeConverter
     fun stringToCategoryType(value: String): CategoryType = CategoryType.valueOf(value)
-
-    @TypeConverter
-    fun accountTypeToString(value: AccountType): String = value.name
-
-    @TypeConverter
-    fun stringToAccountType(value: String): AccountType = AccountType.valueOf(value)
 }

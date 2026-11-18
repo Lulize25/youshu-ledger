@@ -2,7 +2,9 @@ package com.youshu.ledger.ui.record
 
 import android.content.Context
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -24,6 +26,9 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
@@ -83,14 +88,35 @@ data class RecordUiState(
 }
 
 /**
+ * 未保存流水的草稿：写入 SavedStateHandle，进程被系统杀死后重建也能恢复。
+ * 仅在「新建流水」时生效；编辑已有流水不写草稿。
+ */
+@Serializable
+data class RecordDraft(
+    val type: String = "EXPENSE",
+    val businessDate: Long = 0,
+    val note: String = "",
+    val categoryId: Long? = null,
+    val accountId: Long? = null,
+    val toAccountId: Long? = null,
+    val feeFen: Long = 0,
+    val advanceFen: Long = 0,
+    val amountText: String = "",
+)
+
+/**
  * 记一笔 / 编辑流水 ViewModel。
  * 退款、报销、收回「发生即计入余额」（见 BalanceCalculator）；
  * 因此这些操作要求流水已保存——未保存时先自动保存再追加记录。
+ *
+ * 草稿持久化：新建模式下的任何修改都会写入 SavedStateHandle，
+ * 与应用切后台 / 系统回收进程后回来，表单原样恢复；保存成功后清除。
  */
 class RecordViewModel(
     private val container: AppContainer,
     private val appContext: Context,
     private val txnId: Long?,
+    private val handle: SavedStateHandle,
 ) : ViewModel() {
 
     private val bookRepo = container.bookRepository
@@ -104,13 +130,23 @@ class RecordViewModel(
     /** 金额输入（分） */
     val amountInput = AmountInputState()
 
+    /** 冷启动恢复的草稿金额文本（Compose 层取一次作为初始值） */
+    val restoredAmountText: String? = draftOrNull()?.amountText?.takeIf { it.isNotEmpty() }
+
     private var loadedTxn: TransactionEntity? = null
+
+    private fun draftOrNull(): RecordDraft? =
+        if (txnId != null) null
+        else handle.get<String>(KEY_DRAFT)?.let {
+            runCatching { Json.decodeFromString<RecordDraft>(it) }.getOrNull()
+        }
 
     init {
         viewModelScope.launch {
             val book = bookRepo.currentBook.filterNotNull().first()
             val accounts = accountRepo.getByBook(book.id)
             val categories = categoryRepo.getByBook(book.id)
+            val draft = draftOrNull()
             var state = _ui.value.copy(
                 loading = false,
                 bookId = book.id,
@@ -145,19 +181,65 @@ class RecordViewModel(
                         attachments = detail.attachments,
                     )
                 }
+            } else if (draft != null) {
+                // 恢复草稿：账户/分类若已不存在则回退默认，避免悬空 id
+                val restoredType = draft.type.let { name ->
+                    TxnType.entries.firstOrNull { it.name == name } ?: TxnType.EXPENSE
+                }
+                state = state.copy(
+                    type = restoredType,
+                    businessDate = if (draft.businessDate > 0) draft.businessDate else todayMillis(),
+                    note = draft.note,
+                    categoryId = draft.categoryId
+                        ?.takeIf { id -> categories.any { it.id == id } },
+                    accountId = draft.accountId
+                        ?.takeIf { id -> accounts.any { it.id == id } }
+                        ?: state.accountId,
+                    toAccountId = draft.toAccountId
+                        ?.takeIf { id -> accounts.any { it.id == id } },
+                    feeFen = draft.feeFen,
+                    advanceFen = draft.advanceFen,
+                )
+                draft.amountText.forEach { amountInput.append(it) }
             }
             _ui.value = state
         }
     }
 
+    /** 把当前表单写入 SavedStateHandle 草稿（新建模式） */
+    fun persistDraft() {
+        if (txnId != null) return
+        val s = _ui.value
+        if (s.loading) return
+        handle[KEY_DRAFT] = Json.encodeToString(
+            RecordDraft(
+                type = s.type.name,
+                businessDate = s.businessDate,
+                note = s.note,
+                categoryId = s.categoryId,
+                accountId = s.accountId,
+                toAccountId = s.toAccountId,
+                feeFen = s.feeFen,
+                advanceFen = s.advanceFen,
+                amountText = amountInput.text,
+            ),
+        )
+    }
+
+    private fun clearDraft() {
+        if (txnId == null) handle.remove<String>(KEY_DRAFT)
+    }
+
     fun update(transform: (RecordUiState) -> RecordUiState) {
         _ui.value = transform(_ui.value)
+        persistDraft()
     }
 
     /** 切换类型时清空分类（收入/支出分类树不同） */
     fun setType(type: TxnType) {
         if (type == _ui.value.type) return
         _ui.value = _ui.value.copy(type = type, categoryId = null, toAccountId = null, feeFen = 0)
+        persistDraft()
     }
 
     /** 保存（新建或更新）。返回错误信息，null 表示成功。 */
@@ -189,6 +271,7 @@ class RecordViewModel(
                 val id = txnRepo.createTransaction(entity)
                 loadedTxn = entity.copy(id = id)
                 _ui.value = _ui.value.copy(editingId = id, saving = false)
+                clearDraft()
             } else {
                 txnRepo.updateTransaction(entity)
                 loadedTxn = entity
@@ -306,6 +389,7 @@ class RecordViewModel(
     fun deleteTxn(onDone: () -> Unit) {
         viewModelScope.launch {
             loadedTxn?.let { txnRepo.deleteTransaction(it) }
+            clearDraft()
             onDone()
         }
     }
@@ -325,8 +409,15 @@ class RecordViewModel(
     }
 
     companion object {
+        private const val KEY_DRAFT = "record_draft"
+
         fun factory(container: AppContainer, context: Context, txnId: Long?) = viewModelFactory {
-            initializer { RecordViewModel(container, context.applicationContext, txnId) }
+            initializer {
+                RecordViewModel(
+                    container, context.applicationContext, txnId,
+                    createSavedStateHandle(),
+                )
+            }
         }
     }
 }

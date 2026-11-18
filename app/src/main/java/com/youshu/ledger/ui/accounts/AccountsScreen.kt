@@ -1,5 +1,6 @@
 package com.youshu.ledger.ui.accounts
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
@@ -48,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -56,9 +59,10 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AccountType
 import com.youshu.ledger.domain.util.formatDay
 import com.youshu.ledger.domain.util.toYuan
+import com.youshu.ledger.ui.common.AccountIcon
+import com.youshu.ledger.ui.common.AccountIcons
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.DayPickerDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
@@ -71,16 +75,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
-/** 账户类型 → (中文名, 图标) */
-val ACCOUNT_TYPE_LABELS: Map<AccountType, Pair<String, String>> = mapOf(
-    AccountType.CASH to ("现金" to "💵"),
-    AccountType.BANK_CARD to ("银行卡" to "🏦"),
-    AccountType.CREDIT_CARD to ("信用卡" to "💳"),
-    AccountType.ALIPAY to ("支付宝" to "💙"),
-    AccountType.WECHAT to ("微信" to "💚"),
-    AccountType.OTHER to ("其他" to "📦"),
-)
 
 data class AccountWithBalance(val account: AccountEntity, val balance: Long)
 
@@ -253,7 +247,6 @@ private fun AccountRow(
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    val (typeLabel, icon) = ACCOUNT_TYPE_LABELS[item.account.type] ?: ("其他" to "📦")
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -266,12 +259,12 @@ private fun AccountRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(icon, modifier = Modifier.size(40.dp).clip(CircleShape), style = MaterialTheme.typography.headlineSmall)
+            AccountIcon(item.account.iconKey, 40.dp)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.account.name, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "$typeLabel · 启用 ${item.account.enableDate.formatDay()}",
+                    "${AccountIcons.of(item.account.iconKey).label} · 启用 ${item.account.enableDate.formatDay()}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -313,8 +306,8 @@ private fun AccountRow(
     }
 }
 
-/** 新建/编辑账户对话框：名称、类型、期初余额、启用日期 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 新建/编辑账户对话框：名称、图标、期初余额、启用日期 */
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun AccountEditDialog(
     account: AccountEntity?,
@@ -322,13 +315,12 @@ private fun AccountEditDialog(
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(account?.name ?: "") }
-    var type by remember { mutableStateOf(account?.type ?: AccountType.CASH) }
+    var iconKey by remember { mutableStateOf(account?.iconKey ?: AccountIcons.defaultKey) }
     var balanceText by remember {
         mutableStateOf(account?.let { (it.initialBalance / 100.0).let { v -> if (it.initialBalance % 100 == 0L) "${it.initialBalance / 100}" else "%.2f".format(v) } } ?: "")
     }
     var enableDate by remember { mutableStateOf(account?.enableDate ?: com.youshu.ledger.domain.util.todayMillis()) }
     var showDatePicker by remember { mutableStateOf(false) }
-    var typeMenu by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -342,24 +334,31 @@ private fun AccountEditDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // 类型下拉
-                ExposedDropdownMenuBox(expanded = typeMenu, onExpandedChange = { typeMenu = it }) {
-                    OutlinedTextField(
-                        value = ACCOUNT_TYPE_LABELS[type]?.first ?: "其他",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("账户类型") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeMenu) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
-                    )
-                    ExposedDropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                        AccountType.entries.forEach { t ->
-                            val (label, icon) = ACCOUNT_TYPE_LABELS[t] ?: (t.name to "📦")
-                            DropdownMenuItem(
-                                text = { Text("$icon $label") },
-                                onClick = { type = t; typeMenu = false },
+                // 图标选择
+                Text("图标", style = MaterialTheme.typography.labelLarge)
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    AccountIcons.all.forEach { spec ->
+                        val selected = spec.key == iconKey
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primaryContainer
+                                    else Color.Transparent,
+                                )
+                                .clickable { iconKey = spec.key }
+                                .padding(6.dp),
+                        ) {
+                            AccountIcon(spec.key, 40.dp)
+                            Text(
+                                spec.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -382,11 +381,11 @@ private fun AccountEditDialog(
                 if (name.isBlank()) return@TextButton
                 onSave(
                     (account ?: AccountEntity(
-                        id = 0, bookId = 0, name = "", type = AccountType.CASH,
+                        id = 0, bookId = 0, name = "", iconKey = iconKey,
                         initialBalance = 0, enableDate = enableDate, sortOrder = 0, archived = false,
                     )).copy(
                         name = name.trim(),
-                        type = type,
+                        iconKey = iconKey,
                         initialBalance = fen,
                         enableDate = enableDate,
                     ),

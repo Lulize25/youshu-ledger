@@ -3,6 +3,7 @@ package com.youshu.ledger
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.fragment.app.FragmentActivity
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -71,12 +73,26 @@ class MainActivity : FragmentActivity() {
             YoushuTheme {
                 val isUnlocked by unlocked.collectAsState()
                 when (isUnlocked) {
-                    true -> LedgerNavHost(container, quickAddSignal)
-                    false -> com.youshu.ledger.ui.security.LockScreen(
-                        onUnlockClick = { promptUnlock() },
-                        onExit = { finish() },
-                    )
-                    null -> Unit // 校验中，显示空白
+                    // 校验中：空白（冷启动时尚无可保留状态）
+                    null -> Unit
+                    else -> androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    ) {
+                        LedgerNavHost(container, quickAddSignal)
+                        // 锁屏用覆盖层而非替换界面：底层保持组合，
+                        // 切后台回来解锁后，进行中的表单/对话框原样保留
+                        if (isUnlocked == false) {
+                            androidx.compose.material3.Surface(
+                                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                                color = MaterialTheme.colorScheme.surface,
+                            ) {
+                                com.youshu.ledger.ui.security.LockScreen(
+                                    onUnlockClick = { promptUnlock() },
+                                    onExit = { finish() },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

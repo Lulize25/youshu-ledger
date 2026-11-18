@@ -17,9 +17,6 @@ enum class TxnType { EXPENSE, INCOME, TRANSFER }
 /** 分类类型：收入、支出各一棵独立的分类树 */
 enum class CategoryType { EXPENSE, INCOME }
 
-/** 账户类型 */
-enum class AccountType { CASH, BANK_CARD, CREDIT_CARD, ALIPAY, WECHAT, OTHER }
-
 /** 账本：分类、预算、账户均按账本隔离 */
 @Entity(tableName = "books")
 data class BookEntity(
@@ -44,7 +41,7 @@ data class AccountEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val bookId: Long,
     val name: String,
-    val type: AccountType,
+    val iconKey: String,      // 账户图标（见 ui.common.AccountIcons），替代旧版类型字段
     val initialBalance: Long, // 期初余额（分），可为负
     val enableDate: Long,     // 启用日期（当天 00:00 的 epoch 毫秒），余额从这天起算
     val sortOrder: Int,

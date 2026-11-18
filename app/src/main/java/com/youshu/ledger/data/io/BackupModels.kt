@@ -1,7 +1,6 @@
 package com.youshu.ledger.data.io
 
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AccountType
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.BudgetEntity
@@ -39,7 +38,9 @@ data class BookDto(
 
 @Serializable
 data class AccountDto(
-    val id: Long, val bookId: Long, val name: String, val type: String,
+    val id: Long, val bookId: Long, val name: String,
+    val iconKey: String = "",            // v2 起：预置图标 key
+    val type: String? = null,            // 旧版（v1）账户类型，恢复时自动映射图标
     val initialBalance: Long, val enableDate: Long, val sortOrder: Int, val archived: Boolean,
 )
 
@@ -76,8 +77,12 @@ data class BudgetDto(
 fun BookEntity.toDto() = BookDto(id, name, createdAt, isDefault)
 fun BookDto.toEntity() = BookEntity(id, name, createdAt, isDefault)
 
-fun AccountEntity.toDto() = AccountDto(id, bookId, name, type.name, initialBalance, enableDate, sortOrder, archived)
-fun AccountDto.toEntity() = AccountEntity(id, bookId, name, AccountType.valueOf(type), initialBalance, enableDate, sortOrder, archived)
+fun AccountEntity.toDto() = AccountDto(id, bookId, name, iconKey, initialBalance = initialBalance, enableDate = enableDate, sortOrder = sortOrder, archived = archived)
+fun AccountDto.toEntity() = AccountEntity(
+    id, bookId, name,
+    iconKey.ifBlank { com.youshu.ledger.ui.common.AccountIcons.fromLegacyType(type) },
+    initialBalance, enableDate, sortOrder, archived,
+)
 
 fun CategoryEntity.toDto() = CategoryDto(id, bookId, type.name, parentId, name, sortOrder, color, iconText)
 fun CategoryDto.toEntity() = CategoryEntity(id, bookId, CategoryType.valueOf(type), parentId, name, sortOrder, color, iconText)
