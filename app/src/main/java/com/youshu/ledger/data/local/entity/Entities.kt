@@ -101,6 +101,7 @@ data class TransactionEntity(
     val type: TxnType,
     val amount: Long,        // 金额（分）
     val businessDate: Long,  // 业务日期（当天 00:00 的 epoch 毫秒），统计一律按此归档
+    val timeOfDay: Int = -1, // 当天分钟数（0~1439），仅展示维度；-1 = 未记录（旧数据）
     val createdAt: Long,     // 录入时间（epoch 毫秒）
     val note: String,
     val categoryId: Long?,   // 转账时为 null

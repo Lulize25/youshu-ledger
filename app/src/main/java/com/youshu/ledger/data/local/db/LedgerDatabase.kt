@@ -25,7 +25,15 @@ import com.youshu.ledger.data.local.entity.TransactionEntity
  * 数据库结构演进：
  * - v1 → v2：accounts.type（枚举）改为 accounts.iconKey（预置图标 key），
  *   数据保留，旧类型自动映射到对应图标。
+ * - v2 → v3：transactions 新增 timeOfDay（当天分钟数，-1 = 未记录），
+ *   仅影响展示与录入，余额/统计仍按 businessDate（天）计算，旧数据默认 -1。
  */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `transactions` ADD COLUMN `timeOfDay` INTEGER NOT NULL DEFAULT -1")
+    }
+}
+
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `accounts` ADD COLUMN `iconKey` TEXT NOT NULL DEFAULT 'other'")
@@ -71,7 +79,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -95,7 +103,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     "ledger.db",
                 )
                     // 只走显式迁移：宁可升级失败报错，也绝不静默清空用户记账数据
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }

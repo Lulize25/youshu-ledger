@@ -84,7 +84,7 @@ class AccountDetailViewModel(
                     groups = displays
                         .groupBy { it.businessDate.toLocalDate() }
                         .toSortedMap(reverseOrder())
-                        .map { (date, items) -> DayGroup(date, items) },
+                        .map { (date, items) -> DayGroup(date, items.sortedByDescending { it.timeOfDay }) },
                 )
             }
         }
@@ -95,6 +95,7 @@ class AccountDetailViewModel(
         type = transaction.type,
         amount = transaction.amount,
         businessDate = transaction.businessDate,
+        timeOfDay = transaction.timeOfDay,
         note = transaction.note,
         category = transaction.categoryId?.let { catById[it] },
         accountName = "",

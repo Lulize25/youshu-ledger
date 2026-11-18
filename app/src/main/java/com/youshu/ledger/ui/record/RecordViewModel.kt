@@ -17,6 +17,7 @@ import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TxnType
+import com.youshu.ledger.domain.util.currentMinuteOfDay
 import com.youshu.ledger.domain.util.todayMillis
 import com.youshu.ledger.ui.common.AmountInputState
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,8 @@ data class RecordUiState(
     val bookId: Long = 0,
     val type: TxnType = TxnType.EXPENSE,
     val businessDate: Long = todayMillis(),
+    /** 当天分钟数（0~1439），-1 = 未记录时间 */
+    val timeOfDay: Int = -1,
     val note: String = "",
     val categoryId: Long? = null,
     val accountId: Long? = null,
@@ -95,6 +98,7 @@ data class RecordUiState(
 data class RecordDraft(
     val type: String = "EXPENSE",
     val businessDate: Long = 0,
+    val timeOfDay: Int = -1,
     val note: String = "",
     val categoryId: Long? = null,
     val accountId: Long? = null,
@@ -169,6 +173,7 @@ class RecordViewModel(
                         editingId = txnId,
                         type = detail.transaction.type,
                         businessDate = detail.transaction.businessDate,
+                        timeOfDay = detail.transaction.timeOfDay,
                         note = detail.transaction.note,
                         categoryId = detail.transaction.categoryId,
                         accountId = detail.transaction.accountId,
@@ -189,6 +194,7 @@ class RecordViewModel(
                 state = state.copy(
                     type = restoredType,
                     businessDate = if (draft.businessDate > 0) draft.businessDate else todayMillis(),
+                    timeOfDay = if (draft.timeOfDay >= 0) draft.timeOfDay else currentMinuteOfDay(),
                     note = draft.note,
                     categoryId = draft.categoryId
                         ?.takeIf { id -> categories.any { it.id == id } },
@@ -201,6 +207,9 @@ class RecordViewModel(
                     advanceFen = draft.advanceFen,
                 )
                 draft.amountText.forEach { amountInput.append(it) }
+            } else {
+                // 全新记账：默认时间为此刻
+                state = state.copy(timeOfDay = currentMinuteOfDay())
             }
             _ui.value = state
         }
@@ -215,6 +224,7 @@ class RecordViewModel(
             RecordDraft(
                 type = s.type.name,
                 businessDate = s.businessDate,
+                timeOfDay = s.timeOfDay,
                 note = s.note,
                 categoryId = s.categoryId,
                 accountId = s.accountId,
@@ -256,6 +266,7 @@ class RecordViewModel(
             type = s.type,
             amount = amount,
             businessDate = s.businessDate,
+            timeOfDay = s.timeOfDay,
             createdAt = base?.createdAt ?: now,
             note = s.note.trim(),
             categoryId = if (s.type == TxnType.TRANSFER) null else s.categoryId,

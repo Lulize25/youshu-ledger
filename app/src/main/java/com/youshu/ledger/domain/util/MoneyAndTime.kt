@@ -47,6 +47,16 @@ fun Long.formatDay(): String = toLocalDate().formatDay()
 /** 当前时间当天 00:00 的 epoch 毫秒 */
 fun todayMillis(): Long = LocalDate.now().toEpochMillis()
 
+/** 当前时间的当天分钟数（0~1439） */
+fun currentMinuteOfDay(): Int {
+    val t = java.time.LocalTime.now()
+    return t.hour * 60 + t.minute
+}
+
+/** 当天分钟数（0~1439）→ "HH:mm"；负数（未记录）返回空串 */
+fun formatMinuteOfDay(minuteOfDay: Int): String =
+    if (minuteOfDay < 0) "" else "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
+
 /** 将「yyyy-MM」与「yyyy-MM-dd」解析为当天 00:00 毫秒 */
 fun parseDayMillis(text: String): Long? = runCatching {
     LocalDate.parse(text, DAY_FMT).toEpochMillis()

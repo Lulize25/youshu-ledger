@@ -78,7 +78,7 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
                     val groups = displays
                         .groupBy { it.businessDate.toLocalDate() }
                         .toSortedMap(reverseOrder())
-                        .map { (date, items) -> DayGroup(date, items) }
+                        .map { (date, items) -> DayGroup(date, items.sortedByDescending { it.timeOfDay }) }
                     TxnListUiState(
                         loading = false,
                         bookName = book.name,
@@ -107,6 +107,7 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
             type = transaction.type,
             amount = transaction.amount,
             businessDate = transaction.businessDate,
+            timeOfDay = transaction.timeOfDay,
             note = transaction.note,
             category = transaction.categoryId?.let { catById[it] },
             accountName = account?.name ?: "未知账户",

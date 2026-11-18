@@ -20,6 +20,7 @@ import com.youshu.ledger.data.local.entity.AccountEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.domain.util.formatDay
+import com.youshu.ledger.domain.util.formatMinuteOfDay
 import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.domain.util.weekDayCn
 import com.youshu.ledger.ui.theme.expense
@@ -32,6 +33,8 @@ data class TxnDisplay(
     val type: TxnType,
     val amount: Long,
     val businessDate: Long,
+    /** 当天分钟数（0~1439），-1 = 未记录（旧数据不显示时间） */
+    val timeOfDay: Int = -1,
     val note: String,
     val category: CategoryEntity?,
     val accountName: String,
@@ -113,6 +116,7 @@ fun TxnRow(item: TxnDisplay, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             val subtitle = buildString {
+                if (item.timeOfDay >= 0) append(formatMinuteOfDay(item.timeOfDay) + " · ")
                 if (item.type == TxnType.TRANSFER) append("转账")
                 else append(item.accountName)
                 if (item.note.isNotBlank()) append(" · ${item.note}")

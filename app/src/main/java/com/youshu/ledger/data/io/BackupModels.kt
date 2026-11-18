@@ -56,6 +56,7 @@ data class TransactionDto(
     val businessDate: Long, val createdAt: Long, val note: String,
     val categoryId: Long?, val accountId: Long, val toAccountId: Long?, val fee: Long,
     val advanceAmount: Long, val recoveredAmount: Long,
+    val timeOfDay: Int = -1,              // v3 起：当天分钟数；旧备份无此字段，默认 -1
     val refunds: List<RefundDto> = emptyList(),
     val reimbursements: List<ReimburseDto> = emptyList(),
     val attachments: List<String> = emptyList(),

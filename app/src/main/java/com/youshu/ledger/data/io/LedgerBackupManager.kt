@@ -56,6 +56,7 @@ class LedgerBackupManager(
                     accountId = d.transaction.accountId, toAccountId = d.transaction.toAccountId,
                     fee = d.transaction.fee, advanceAmount = d.transaction.advanceAmount,
                     recoveredAmount = d.transaction.recoveredAmount,
+                    timeOfDay = d.transaction.timeOfDay,
                     refunds = d.refunds.map { it.toDto() },
                     reimbursements = d.reimbursements.map { it.toDto() },
                     attachments = d.attachments.map { it.relativePath },
@@ -107,6 +108,7 @@ class LedgerBackupManager(
                         note = t.note, categoryId = t.categoryId, accountId = t.accountId,
                         toAccountId = t.toAccountId, fee = t.fee,
                         advanceAmount = t.advanceAmount, recoveredAmount = t.recoveredAmount,
+                        timeOfDay = t.timeOfDay,
                     ),
                 )
                 t.refunds.forEach { txnDao.upsertRefund(it.toEntity(t.id)) }

@@ -52,6 +52,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +81,7 @@ import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.domain.util.formatDay
+import com.youshu.ledger.domain.util.formatMinuteOfDay
 import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.ui.common.CategoryBadge
 import com.youshu.ledger.ui.common.ConfirmDialog
@@ -108,6 +111,7 @@ fun RecordScreen(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     // 金额输入框实时显示（草稿恢复时取已保存的金额文本）
@@ -280,13 +284,18 @@ fun RecordScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // ---- 日期（默认今天，可改到任意过去日期即补录） ----
-            OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.DateRange, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("业务日期：${s.businessDate.formatDay()}")
-                Spacer(modifier = Modifier.weight(1f))
-                Text("点击修改（过去的日期即补录）", style = MaterialTheme.typography.labelSmall)
+            // ---- 日期 + 时间（日期默认今天可改到任意过去日期即补录；时间精确到分钟） ----
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.DateRange, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("日期：${s.businessDate.formatDay()}", maxLines = 1)
+                }
+                OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
+                    Text("时间：${formatMinuteOfDay(s.timeOfDay).ifEmpty { "未设置" }}")
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text("点击修改", style = MaterialTheme.typography.labelSmall)
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -342,6 +351,33 @@ fun RecordScreen(
             initialMillis = s.businessDate,
             onConfirm = { millis -> vm.update { it.copy(businessDate = millis) }; showDatePicker = false },
             onDismiss = { showDatePicker = false },
+        )
+    }
+
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = (s.timeOfDay / 60).coerceIn(0, 23),
+            initialMinute = (s.timeOfDay % 60).let { if (s.timeOfDay < 0) 0 else it.coerceIn(0, 59) },
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            title = { Text("交易时间") },
+            text = { TimePicker(state = timePickerState) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.update { it.copy(timeOfDay = timePickerState.hour * 60 + timePickerState.minute) }
+                    showTimePicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        vm.update { it.copy(timeOfDay = -1) }
+                        showTimePicker = false
+                    }) { Text("不记录时间") }
+                    TextButton(onClick = { showTimePicker = false }) { Text("取消") }
+                }
+            },
         )
     }
 
