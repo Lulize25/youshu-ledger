@@ -174,4 +174,36 @@ class BalanceCalculatorTest {
         val early = expense(1, 100_00, date = today).copy(timeOfDay = 0)
         assertEquals(400_00, BalanceCalculator.computeBalance(acc, listOf(detail(early))))
     }
+
+    /** 截至时刻（asOf）：只统计生效时刻 ≤ asOf 的流水，之后的流水不计入 */
+    @Test
+    fun `asOf cutoff excludes later transactions`() {
+        val asOf = today + 12 * 60 * 60_000L // 今天 12:00
+        val before = expense(1, 100_00, date = today).copy(timeOfDay = 9 * 60)
+        val after = expense(2, 100_00, date = today).copy(timeOfDay = 15 * 60)
+        // 12:00 时点上：只有 9:00 的支出已发生 → 500 - 100 = 400
+        assertEquals(
+            400_00,
+            BalanceCalculator.computeBalance(account, listOf(detail(before), detail(after)), asOf),
+        )
+        // 不传 asOf = 当前余额：两笔都计入
+        assertEquals(
+            300_00,
+            BalanceCalculator.computeBalance(account, listOf(detail(before), detail(after))),
+        )
+    }
+
+    /** 截至时刻对退款同样生效：asOf 之后才发生的退款不计入 */
+    @Test
+    fun `asOf cutoff excludes later refunds`() {
+        val asOf = today + 12 * 60 * 60_000L
+        val refunded = detail(
+            expense(1, 100_00, date = today).copy(timeOfDay = 9 * 60),
+            refunds = listOf(
+                RefundRecordEntity(id = 1, transactionId = 1, amount = 40_00, note = "", createdAt = today + 15 * 60 * 60_000L),
+            ),
+        )
+        // 退款发生在 15:00（asOf 之后）→ 12:00 时点上余额 = 500 - 100 = 400
+        assertEquals(400_00, BalanceCalculator.computeBalance(account, listOf(refunded), asOf))
+    }
 }

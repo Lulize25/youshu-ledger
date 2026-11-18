@@ -199,11 +199,11 @@ object CsvEngine {
                 existing ?: AccountEntity(
                     id = accountDao.upsert(
                         AccountEntity(
-                            id = 0, bookId = bookId, name = name, iconKey = "other",
+                            id = 0, bookId = bookId, name = name, iconKey = "",
                             initialBalance = 0, enableDate = txnDate, sortOrder = 0, archived = false,
                         ),
                     ),
-                    bookId = bookId, name = name, iconKey = "other",
+                    bookId = bookId, name = name, iconKey = "",
                     initialBalance = 0, enableDate = txnDate, sortOrder = 0, archived = false,
                 )
             }

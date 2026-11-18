@@ -565,7 +565,7 @@ private fun AccountPicker(
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             accounts.forEach { acc ->
                 DropdownMenuItem(
-                    text = { Text("${acc.name}（余额可能为负，信用卡正常）".takeIf { acc.iconKey == "credit" } ?: acc.name) },
+                    text = { Text(acc.name) },
                     onClick = { onSelect(acc.id); expanded = false },
                 )
             }

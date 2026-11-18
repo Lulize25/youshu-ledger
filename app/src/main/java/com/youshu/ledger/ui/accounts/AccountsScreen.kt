@@ -65,17 +65,22 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.AccountEntity
+import com.youshu.ledger.domain.util.currentMinuteOfDay
 import com.youshu.ledger.domain.util.formatDay
 import com.youshu.ledger.domain.util.formatEnableDay
 import com.youshu.ledger.domain.util.formatMinuteOfDay
+import com.youshu.ledger.domain.util.formatTime
+import com.youshu.ledger.domain.util.toEpochMillis
+import com.youshu.ledger.domain.util.toLocalDate
 import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.ui.common.AccountIcon
-import com.youshu.ledger.ui.common.AccountIcons
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.DayPickerDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
+import com.youshu.ledger.ui.common.normalizeIconText
 import com.youshu.ledger.ui.theme.expense
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -102,6 +107,10 @@ data class AccountsUiState(
     val bookName: String = "",
     val active: List<AccountWithBalance> = emptyList(),
     val archived: List<AccountWithBalance> = emptyList(),
+    /** 余额截至时刻：null = 当前时间（各账户余额与合计均按此计算） */
+    val asOfMillis: Long? = null,
+    /** 实际用于计算的有效截至时刻（asOfMillis 为 null 时取收集瞬间的当前时间） */
+    val effectiveAsOf: Long = 0,
 ) {
     /** 合计（仅统计未归档账户，即日常在用的净资产） */
     val totalBalance: Long get() = active.sumOf { it.balance }
@@ -118,6 +127,13 @@ class AccountsViewModel(
     private val txnRepo = container.transactionRepository
     private val settings = container.settingsStore
 
+    /** 余额截至时刻：null = 当前时间 */
+    private val asOf = MutableStateFlow<Long?>(null)
+
+    fun setAsOf(millis: Long?) {
+        asOf.value = millis
+    }
+
     val uiState: StateFlow<AccountsUiState> =
         combine(
             bookRepo.currentBook,
@@ -128,9 +144,11 @@ class AccountsViewModel(
                 else combine(
                     accountRepo.observeByBook(book.id),
                     settings.dataVersion,
-                ) { accounts, _ ->
+                    asOf,
+                ) { accounts, _, asOfMillis ->
+                    val cutoff = asOfMillis ?: System.currentTimeMillis()
                     val withBalance = accounts.map { acc ->
-                        AccountWithBalance(acc, txnRepo.getAccountBalance(acc))
+                        AccountWithBalance(acc, txnRepo.getAccountBalance(acc, cutoff))
                     }
                     AccountsUiState(
                         loading = false,
@@ -138,6 +156,8 @@ class AccountsViewModel(
                         bookName = book.name,
                         active = withBalance.filter { !it.account.archived },
                         archived = withBalance.filter { it.account.archived },
+                        asOfMillis = asOfMillis,
+                        effectiveAsOf = cutoff,
                     )
                 }
             }
@@ -201,6 +221,9 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
     // 有未保存草稿（如进程被杀后重建）时直接恢复新建对话框
     var showCreate by remember { mutableStateOf(vm.createDraftOrNull() != null) }
     var pendingDelete by remember { mutableStateOf<AccountEntity?>(null) }
+    // 余额截至时间选择
+    var showAsOfDatePicker by remember { mutableStateOf(false) }
+    var showAsOfTimePicker by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = { LedgerTopBar(title = "账户 · ${state.bookName}") },
@@ -216,6 +239,32 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
                 .padding(padding)
                 .fillMaxSize(),
         ) {
+            // 截至时间选择：各账户余额与合计均按所选时刻计算（默认当前时间）
+            item(key = "as_of") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (state.asOfMillis == null) {
+                            "余额截至：现在"
+                        } else {
+                            "余额截至：${state.effectiveAsOf.formatTime()}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (state.asOfMillis == null) MaterialTheme.colorScheme.outline
+                        else MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showAsOfDatePicker = true }) { Text("选日期") }
+                    TextButton(onClick = { showAsOfTimePicker = true }) { Text("选时间") }
+                    if (state.asOfMillis != null) {
+                        TextButton(onClick = { vm.setAsOf(null) }) { Text("回到现在") }
+                    }
+                }
+            }
             // 合计栏：所有未归档账户余额之和（净资产）
             item(key = "total") {
                 Card(
@@ -288,6 +337,41 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
         }
     }
 
+    if (showAsOfDatePicker) {
+        DayPickerDialog(
+            initialMillis = state.effectiveAsOf,
+            onConfirm = { day ->
+                // 保留当前时刻的时分，替换为所选日期
+                val minuteOfDay =
+                    ((state.effectiveAsOf - state.effectiveAsOf.toLocalDate().toEpochMillis()) / 60_000L).toInt()
+                vm.setAsOf(day + minuteOfDay * 60_000L)
+                showAsOfDatePicker = false
+            },
+            onDismiss = { showAsOfDatePicker = false },
+        )
+    }
+
+    if (showAsOfTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = ((state.effectiveAsOf - state.effectiveAsOf.toLocalDate().toEpochMillis()) / 3_600_000L).toInt(),
+            initialMinute = (((state.effectiveAsOf - state.effectiveAsOf.toLocalDate().toEpochMillis()) % 3_600_000L) / 60_000L).toInt(),
+        )
+        AlertDialog(
+            onDismissRequest = { showAsOfTimePicker = false },
+            title = { Text("余额截至时间") },
+            text = { TimePicker(state = timePickerState) },
+            confirmButton = {
+                TextButton(onClick = {
+                    // 保留当前所选日期，替换时分
+                    val dayStart = state.effectiveAsOf.toLocalDate().toEpochMillis()
+                    vm.setAsOf(dayStart + (timePickerState.hour * 60 + timePickerState.minute) * 60_000L)
+                    showAsOfTimePicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = { TextButton(onClick = { showAsOfTimePicker = false }) { Text("取消") } },
+        )
+    }
+
     if (showCreate) {
         AccountEditDialog(
             account = null,
@@ -356,20 +440,16 @@ private fun AccountRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.account.name, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${AccountIcons.of(item.account.iconKey).label} · 启用 ${formatEnableDay(item.account.enableDate, item.account.enableTimeOfDay)}",
+                    "${formatEnableDay(item.account.enableDate, item.account.enableTimeOfDay)}启用",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
-                // 负余额红色展示（信用卡/负债场景）
-                Text(
-                    text = item.balance.toYuan() + " 元",
-                    color = if (item.balance < 0) MaterialTheme.colorScheme.expense else MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text("当前余额", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-            }
+            Text(
+                text = item.balance.toYuan() + " 元",
+                color = if (item.balance < 0) MaterialTheme.colorScheme.expense else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium,
+            )
             Box {
                 IconButton(onClick = { menu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "更多")
@@ -411,8 +491,9 @@ private fun AccountEditDialog(
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf(account?.name ?: draft?.name ?: "") }
-    var iconKey by remember {
-        mutableStateOf(account?.iconKey ?: draft?.iconKey?.takeIf { it.isNotBlank() } ?: AccountIcons.defaultKey)
+    // 图标文字（1~2 个字），持久化在 iconKey 字段
+    var iconText by remember {
+        mutableStateOf(account?.iconKey ?: draft?.iconKey?.takeIf { it.isNotBlank() } ?: "")
     }
     var balanceText by remember {
         mutableStateOf(account?.let { (it.initialBalance / 100.0).let { v -> if (it.initialBalance % 100 == 0L) "${it.initialBalance / 100}" else "%.2f".format(v) } } ?: draft?.balanceText ?: "")
@@ -420,9 +501,13 @@ private fun AccountEditDialog(
     var enableDate by remember {
         mutableStateOf(account?.enableDate ?: draft?.enableDate?.takeIf { it > 0 } ?: com.youshu.ledger.domain.util.todayMillis())
     }
-    // 启用时间：-1 = 未设置（当天 00:00 起算，旧行为）；新建默认未设置
+    // 启用时间：-1 = 未设置（当天 00:00 起算）；新建默认当前时刻
     var enableTimeOfDay by remember {
-        mutableStateOf(account?.enableTimeOfDay ?: draft?.enableTimeOfDay ?: -1)
+        mutableStateOf(
+            account?.enableTimeOfDay
+                ?: draft?.enableTimeOfDay?.takeIf { it >= 0 }
+                ?: currentMinuteOfDay(),
+        )
     }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
@@ -430,7 +515,7 @@ private fun AccountEditDialog(
     /** 新建模式下把当前输入写入草稿 */
     fun persistDraft() {
         if (account == null) {
-            onDraftChange(CreateAccountDraft(name, iconKey, balanceText, enableDate, enableTimeOfDay))
+            onDraftChange(CreateAccountDraft(name, iconText, balanceText, enableDate, enableTimeOfDay))
         }
     }
 
@@ -446,34 +531,17 @@ private fun AccountEditDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // 图标选择
-                Text("图标", style = MaterialTheme.typography.labelLarge)
-                androidx.compose.foundation.layout.FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    AccountIcons.all.forEach { spec ->
-                        val selected = spec.key == iconKey
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (selected) MaterialTheme.colorScheme.primaryContainer
-                                    else Color.Transparent,
-                                )
-                                .clickable { iconKey = spec.key; persistDraft() }
-                                .padding(6.dp),
-                        ) {
-                            AccountIcon(spec.key, 40.dp)
-                            Text(
-                                spec.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                // 图标：自定义 1~2 个文字（留空则取名称首字）
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AccountIcon(iconText.ifBlank { name }, 44.dp)
+                    OutlinedTextField(
+                        value = iconText,
+                        onValueChange = { t -> iconText = t.take(2); persistDraft() },
+                        label = { Text("图标文字（1~2 个字）") },
+                        placeholder = { Text("留空取名称首字") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 OutlinedTextField(
                     value = balanceText,
@@ -507,11 +575,11 @@ private fun AccountEditDialog(
                 if (name.isBlank()) return@TextButton
                 onSave(
                     (account ?: AccountEntity(
-                        id = 0, bookId = 0, name = "", iconKey = iconKey,
+                        id = 0, bookId = 0, name = "", iconKey = "",
                         initialBalance = 0, enableDate = enableDate, sortOrder = 0, archived = false,
                     )).copy(
                         name = name.trim(),
-                        iconKey = iconKey,
+                        iconKey = normalizeIconText(iconText.ifBlank { name.trim() }),
                         initialBalance = fen,
                         enableDate = enableDate,
                         enableTimeOfDay = enableTimeOfDay,

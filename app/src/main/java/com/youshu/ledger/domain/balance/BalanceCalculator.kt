@@ -54,10 +54,16 @@ object BalanceCalculator {
     }
 
     /**
-     * 计算账户当前余额（核心入口）。
+     * 计算账户余额（核心入口）。
      * @param details 该账户涉及的全部流水（含补录）及其退款/报销/附件子表
+     * @param asOfMillis 截至时刻（epoch 毫秒）：只统计生效时刻 ≤ asOf 的流水与记录；
+     *                   默认 [Long.MAX_VALUE] 即「当前余额」。
      */
-    fun computeBalance(account: AccountEntity, details: List<TransactionWithDetails>): Long {
+    fun computeBalance(
+        account: AccountEntity,
+        details: List<TransactionWithDetails>,
+        asOfMillis: Long = Long.MAX_VALUE,
+    ): Long {
         var balance = account.initialBalance
         for (item in details) {
             val t = item.transaction
@@ -65,14 +71,18 @@ object BalanceCalculator {
                 t.accountId == account.id || t.toAccountId == account.id
             if (!involves) continue
 
-            // 1) 退款 / 报销到账 / 收回代付：发生即计入余额（不记为收入流水），含补录流水上的记录
-            balance += item.refunds.sumOf { it.amount }
-            balance += item.reimbursements.sumOf { it.amount }
-            // 收回代付只发生在支出账户（资金原路回到代付方）
-            if (t.accountId == account.id) balance += t.recoveredAmount
+            // 1) 退款 / 报销到账：发生即计入余额（不记为收入流水），含补录流水上的记录；
+            //    二者有独立发生时间（createdAt），仅统计截至 asOf 的部分
+            balance += item.refunds.filter { it.createdAt <= asOfMillis }.sumOf { it.amount }
+            balance += item.reimbursements.filter { it.createdAt <= asOfMillis }.sumOf { it.amount }
+            // 收回代付无独立时间戳，随流水生效时刻一并截止；只发生在支出账户（资金原路回到代付方）
+            if (t.accountId == account.id && t.effectiveTimeMillis() <= asOfMillis) {
+                balance += t.recoveredAmount
+            }
 
-            // 2) 流水影响：仅生效时刻（业务日期+时间，精确到分钟）≥ 启用时刻才计入 —— 补录流水绝不改变余额
-            if (t.effectiveTimeMillis() >= account.effectiveEnableMillis()) {
+            // 2) 流水影响：仅启用时刻 ≤ 生效时刻 ≤ asOf 才计入 —— 补录流水绝不改变余额
+            val effective = t.effectiveTimeMillis()
+            if (effective >= account.effectiveEnableMillis() && effective <= asOfMillis) {
                 balance += txnImpact(t, account.id)
             }
         }

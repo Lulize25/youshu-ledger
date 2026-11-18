@@ -39,7 +39,7 @@ data class BookDto(
 @Serializable
 data class AccountDto(
     val id: Long, val bookId: Long, val name: String,
-    val iconKey: String = "",            // v2 起：预置图标 key
+    val iconKey: String = "",            // v2~v4：预置图标 key；v5 起：自定义图标文字（1~2 字）
     val type: String? = null,            // 旧版（v1）账户类型，恢复时自动映射图标
     val initialBalance: Long, val enableDate: Long, val sortOrder: Int, val archived: Boolean,
     val enableTimeOfDay: Int = -1,       // v4 起：启用当天分钟数；旧备份无此字段，默认 -1
@@ -82,7 +82,9 @@ fun BookDto.toEntity() = BookEntity(id, name, createdAt, isDefault)
 fun AccountEntity.toDto() = AccountDto(id, bookId, name, iconKey, initialBalance = initialBalance, enableDate = enableDate, sortOrder = sortOrder, archived = archived, enableTimeOfDay = enableTimeOfDay)
 fun AccountDto.toEntity() = AccountEntity(
     id, bookId, name,
-    iconKey.ifBlank { com.youshu.ledger.ui.common.AccountIcons.fromLegacyType(type) },
+    com.youshu.ledger.ui.common.iconTextFromLegacyKey(
+        iconKey.ifBlank { com.youshu.ledger.ui.common.iconTextFromLegacyType(type) },
+    ),
     initialBalance, enableDate, enableTimeOfDay, sortOrder, archived,
 )
 

@@ -29,7 +29,22 @@ import com.youshu.ledger.data.local.entity.TransactionEntity
  *   仅影响展示与录入，余额/统计仍按 businessDate（天）计算，旧数据默认 -1。
  * - v3 → v4：accounts 新增 enableTimeOfDay（启用当天分钟数，-1 = 未设置），
  *   补录判断精确到分钟：启用当天早于该时刻的流水判为补录，旧账户默认 -1（行为不变）。
+ * - v4 → v5：accounts.iconKey 语义变更——预置图标 key 转换为用户自定义图标文字（1~2 字）。
  */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "UPDATE `accounts` SET `iconKey` = CASE `iconKey` " +
+                "WHEN 'wechat' THEN '微信' WHEN 'alipay' THEN '支付' " +
+                "WHEN 'cash' THEN '现金' WHEN 'bank' THEN '银行' " +
+                "WHEN 'credit' THEN '信用' WHEN 'wallet' THEN '钱包' " +
+                "WHEN 'transit' THEN '公交' WHEN 'campus' THEN '校园' " +
+                "WHEN 'meal' THEN '饭卡' WHEN 'other' THEN '其他' " +
+                "ELSE substr(`name`, 1, 2) END",
+        )
+    }
+}
+
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `accounts` ADD COLUMN `enableTimeOfDay` INTEGER NOT NULL DEFAULT -1")
@@ -87,7 +102,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -111,7 +126,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     "ledger.db",
                 )
                     // 只走显式迁移：宁可升级失败报错，也绝不静默清空用户记账数据
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

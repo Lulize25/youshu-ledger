@@ -41,7 +41,7 @@ data class AccountEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val bookId: Long,
     val name: String,
-    val iconKey: String,      // 账户图标（见 ui.common.AccountIcons），替代旧版类型字段
+    val iconKey: String,      // 账户图标文字（1~2 个字，v1.4.0 起；旧版预置 key 已迁移为文字）
     val initialBalance: Long, // 期初余额（分），可为负
     val enableDate: Long,     // 启用日期（当天 00:00 的 epoch 毫秒），余额从这天起算
     val enableTimeOfDay: Int = -1, // 启用当天的分钟数（0~1439），-1 = 未设置（从当天 00:00 起算）

@@ -45,11 +45,15 @@ class TransactionRepository(
 
     suspend fun getWithDetails(id: Long): TransactionWithDetails? = dao.getWithDetails(id)
 
-    /** 账户当前余额（含补录流水上的退款/报销/收回，见 BalanceCalculator 注释） */
-    suspend fun getAccountBalance(account: com.youshu.ledger.data.local.entity.AccountEntity): Long {
+    /** 账户余额（含补录流水上的退款/报销/收回，见 BalanceCalculator 注释）。
+     *  @param asOfMillis 截至时刻，默认 [Long.MAX_VALUE] 即当前余额 */
+    suspend fun getAccountBalance(
+        account: com.youshu.ledger.data.local.entity.AccountEntity,
+        asOfMillis: Long = Long.MAX_VALUE,
+    ): Long {
         val details = dao.getAllTouchingAccount(account.id)
             .mapNotNull { dao.getWithDetails(it.id) }
-        return BalanceCalculator.computeBalance(account, details)
+        return BalanceCalculator.computeBalance(account, details, asOfMillis)
     }
 
     // ---------- 写入 ----------
