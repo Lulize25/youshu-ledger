@@ -1,8 +1,8 @@
 package com.youshu.ledger
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -21,6 +21,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -34,8 +35,10 @@ import com.youshu.ledger.ui.record.RecordScreen
 import com.youshu.ledger.ui.stats.StatsScreen
 import com.youshu.ledger.ui.theme.YoushuTheme
 import com.youshu.ledger.ui.txns.TxnsScreen
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private lateinit var container: AppContainer
 
@@ -46,15 +49,67 @@ class MainActivity : ComponentActivity() {
 
     private val quickAddSignal = kotlinx.coroutines.flow.MutableStateFlow(false)
 
+    /** 解锁状态：null=校验中，false=已锁定，true=已解锁 */
+    private val unlocked = kotlinx.coroutines.flow.MutableStateFlow<Boolean?>(null)
+    private var promptShowing = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         container = (application as LedgerApp).container
         handleIntent(intent)
-        setContent {
-            YoushuTheme {
-                LedgerNavHost(container, quickAddSignal)
+        // 初次启动：根据开关与设备能力决定是否需要验证
+        lifecycleScope.launch {
+            val enabled = container.settingsStore.biometricEnabled.first()
+            if (!enabled || !com.youshu.ledger.ui.security.AppLocker.canAuthenticate(this@MainActivity)) {
+                unlocked.value = true
+            } else {
+                unlocked.value = false
+                promptUnlock()
             }
         }
+        setContent {
+            YoushuTheme {
+                val isUnlocked by unlocked.collectAsState()
+                when (isUnlocked) {
+                    true -> LedgerNavHost(container, quickAddSignal)
+                    false -> com.youshu.ledger.ui.security.LockScreen(
+                        onUnlockClick = { promptUnlock() },
+                        onExit = { finish() },
+                    )
+                    null -> Unit // 校验中，显示空白
+                }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // 启动及每次从后台返回时：若开启生物识别且设备可用，则要求重新验证
+        if (unlocked.value == true) {
+            lifecycleScope.launch {
+                val enabled = container.settingsStore.biometricEnabled.first()
+                if (enabled && com.youshu.ledger.ui.security.AppLocker.canAuthenticate(this@MainActivity)) {
+                    unlocked.value = false
+                    promptUnlock()
+                }
+            }
+        }
+    }
+
+    private fun promptUnlock() {
+        if (promptShowing) return
+        promptShowing = true
+        com.youshu.ledger.ui.security.AppLocker.requestUnlock(
+            activity = this,
+            onUnlocked = {
+                promptShowing = false
+                unlocked.value = true
+            },
+            onFailed = {
+                promptShowing = false
+                finish()
+            },
+        )
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
