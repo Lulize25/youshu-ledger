@@ -79,17 +79,30 @@ class MainActivity : FragmentActivity() {
                         modifier = androidx.compose.ui.Modifier.fillMaxSize(),
                     ) {
                         LedgerNavHost(container, quickAddSignal)
-                        // 锁屏用覆盖层而非替换界面：底层保持组合，
-                        // 切后台回来解锁后，进行中的表单/对话框原样保留
+                        // 锁屏层：锁定时才创建、置于最上，解锁后移除。
+                        // 用独立窗口实现——AlertDialog/日期选择器等系统对话框
+                        // 渲染在 Activity 内容层之上，普通覆盖层盖不住它们，
+                        // 必须让锁屏自身也成为窗口才能遮住所有内容；
+                        // 底层组合保持不动，解锁后正在编辑的页面/对话框原样恢复。
                         if (isUnlocked == false) {
-                            androidx.compose.material3.Surface(
-                                modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-                                color = MaterialTheme.colorScheme.surface,
+                            androidx.compose.ui.window.Dialog(
+                                onDismissRequest = { /* 不解锁不允许关闭 */ },
+                                properties = androidx.compose.ui.window.DialogProperties(
+                                    usePlatformDefaultWidth = false,
+                                    decorFitsSystemWindows = false,
+                                    dismissOnBackPress = false,
+                                    dismissOnClickOutside = false,
+                                ),
                             ) {
-                                com.youshu.ledger.ui.security.LockScreen(
-                                    onUnlockClick = { promptUnlock() },
-                                    onExit = { finish() },
-                                )
+                                androidx.compose.material3.Surface(
+                                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                                    color = MaterialTheme.colorScheme.surface,
+                                ) {
+                                    com.youshu.ledger.ui.security.LockScreen(
+                                        onUnlockClick = { promptUnlock() },
+                                        onExit = { finish() },
+                                    )
+                                }
                             }
                         }
                     }
