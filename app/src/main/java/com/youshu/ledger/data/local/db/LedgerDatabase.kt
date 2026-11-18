@@ -56,7 +56,8 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 
 /**
  * Room 数据库。
- * 结构变更优先写 Migration 保留用户数据；无法迁移时退回重建（单机离线应用）。
+ * 结构变更必须提供 Migration（见 MIGRATION_1_2）——用户记账数据绝不因升级丢失；
+ * 无迁移路径时 Room 直接报错，宁可无法启动也不能静默清空。
  * schema 导出至 app/schemas/ 便于审阅与 diff。
  */
 @Database(
@@ -93,9 +94,8 @@ abstract class LedgerDatabase : RoomDatabase() {
                     LedgerDatabase::class.java,
                     "ledger.db",
                 )
-                    // 优先执行显式迁移保留数据；无迁移路径时才重建
+                    // 只走显式迁移：宁可升级失败报错，也绝不静默清空用户记账数据
                     .addMigrations(MIGRATION_1_2)
-                    .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }
             }

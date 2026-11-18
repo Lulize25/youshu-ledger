@@ -84,7 +84,7 @@ git checkout v1.0.0   # 全部验收用例通过
 
 ## 数据库说明
 
-Room 导出 schema 于 `app/schemas/`。结构变更采用 `fallbackToDestructiveMigration()` 策略（单机离线应用，升级即重建库），预置默认账本与默认分类在首次启动时自动创建。
+Room 导出 schema 于 `app/schemas/`。结构变更必须提供 Migration（如 v1→v2 账户图标迁移）——**绝不使用破坏性重建**，无迁移路径时升级会直接报错而不是清空数据。预置默认账本与默认分类在首次启动时自动创建；同签名覆盖安装时数据库原样保留。
 
 ## 验收用例通过说明
 
