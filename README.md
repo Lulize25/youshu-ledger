@@ -44,13 +44,29 @@ git clone https://github.com/Lulize25/youshu-ledger.git
 cd youshu-ledger
 
 # 命令行构建（local.properties 中配置 sdk.dir）
-./gradlew assembleDebug
+./gradlew assembleDebug    # 调试包：约 60 MB，含完整调试符号
+./gradlew assembleRelease  # 精简包：约 4 MB，R8 混淆 + 资源精简，正式签名
 
 # 运行单元测试
 ./gradlew test
 ```
 
 也可以直接用 Android Studio 打开工程根目录，自动同步后运行 `app` 配置。
+
+### 正式签名（release 包）
+
+release 构建默认读取根目录 `keystore.properties`：
+
+```properties
+storeFile=youshu-release.keystore
+storePassword=你的密钥库密码
+keyAlias=你的别名
+keyPassword=你的密钥密码
+```
+
+- `keystore.properties` 与 keystore 文件已加入 `.gitignore`，**不要提交到任何仓库**
+- keystore 一旦丢失将无法覆盖安装更新（用户只能卸载重装），请自行备份到安全位置
+- 没有 keystore 时构建自动退回 debug 签名，不影响编译运行
 
 ## 切换里程碑 tag
 

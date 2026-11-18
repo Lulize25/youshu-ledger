@@ -52,7 +52,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -78,6 +80,15 @@ import kotlinx.coroutines.launch
 
 data class AccountWithBalance(val account: AccountEntity, val balance: Long)
 
+/** 新建账户对话框的草稿：写入 SavedStateHandle，进程被杀死后重建可恢复 */
+@kotlinx.serialization.Serializable
+data class CreateAccountDraft(
+    val name: String = "",
+    val iconKey: String = "",
+    val balanceText: String = "",
+    val enableDate: Long = 0,
+)
+
 data class AccountsUiState(
     val loading: Boolean = true,
     val bookId: Long = 0,
@@ -87,7 +98,10 @@ data class AccountsUiState(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class AccountsViewModel(container: AppContainer) : ViewModel() {
+class AccountsViewModel(
+    container: AppContainer,
+    private val handle: SavedStateHandle,
+) : ViewModel() {
 
     private val bookRepo = container.bookRepository
     private val accountRepo = container.accountRepository
@@ -134,9 +148,30 @@ class AccountsViewModel(container: AppContainer) : ViewModel() {
         }
     }
 
+    /** 读取新建账户草稿（进程重建后恢复对话框内容） */
+    fun createDraftOrNull(): CreateAccountDraft? =
+        handle.get<String>(KEY_CREATE_DRAFT)?.let {
+            runCatching {
+                kotlinx.serialization.json.Json.decodeFromString(CreateAccountDraft.serializer(), it)
+            }.getOrNull()
+        }
+
+    /** 草稿变化即写入（字段每次修改都会调用） */
+    fun saveCreateDraft(draft: CreateAccountDraft) {
+        handle[KEY_CREATE_DRAFT] = kotlinx.serialization.json.Json.encodeToString(
+            CreateAccountDraft.serializer(), draft,
+        )
+    }
+
+    fun clearCreateDraft() {
+        handle.remove<String>(KEY_CREATE_DRAFT)
+    }
+
     companion object {
+        private const val KEY_CREATE_DRAFT = "create_account_draft"
+
         fun factory(container: AppContainer) = viewModelFactory {
-            initializer { AccountsViewModel(container) }
+            initializer { AccountsViewModel(container, createSavedStateHandle()) }
         }
     }
 }
@@ -153,7 +188,8 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var editing by remember { mutableStateOf<AccountEntity?>(null) }
-    var showCreate by remember { mutableStateOf(false) }
+    // 有未保存草稿（如进程被杀后重建）时直接恢复新建对话框
+    var showCreate by remember { mutableStateOf(vm.createDraftOrNull() != null) }
     var pendingDelete by remember { mutableStateOf<AccountEntity?>(null) }
 
     Scaffold(
@@ -205,11 +241,17 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
     if (showCreate) {
         AccountEditDialog(
             account = null,
+            draft = vm.createDraftOrNull(),
+            onDraftChange = { vm.saveCreateDraft(it) },
             onSave = { acc ->
                 vm.saveAccount(acc.copy(bookId = state.bookId))
+                vm.clearCreateDraft()
                 showCreate = false
             },
-            onDismiss = { showCreate = false },
+            onDismiss = {
+                vm.clearCreateDraft()
+                showCreate = false
+            },
         )
     }
     editing?.let { acc ->
@@ -306,21 +348,36 @@ private fun AccountRow(
     }
 }
 
-/** 新建/编辑账户对话框：名称、图标、期初余额、启用日期 */
+/** 新建/编辑账户对话框：名称、图标、期初余额、启用日期。
+ *  新建模式支持草稿（draft + onDraftChange）：任何修改即持久化，
+ *  进程被杀死后重建对话框内容不丢；保存或取消时清除。 */
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun AccountEditDialog(
     account: AccountEntity?,
+    draft: CreateAccountDraft? = null,
+    onDraftChange: (CreateAccountDraft) -> Unit = {},
     onSave: (AccountEntity) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf(account?.name ?: "") }
-    var iconKey by remember { mutableStateOf(account?.iconKey ?: AccountIcons.defaultKey) }
-    var balanceText by remember {
-        mutableStateOf(account?.let { (it.initialBalance / 100.0).let { v -> if (it.initialBalance % 100 == 0L) "${it.initialBalance / 100}" else "%.2f".format(v) } } ?: "")
+    var name by remember { mutableStateOf(account?.name ?: draft?.name ?: "") }
+    var iconKey by remember {
+        mutableStateOf(account?.iconKey ?: draft?.iconKey?.takeIf { it.isNotBlank() } ?: AccountIcons.defaultKey)
     }
-    var enableDate by remember { mutableStateOf(account?.enableDate ?: com.youshu.ledger.domain.util.todayMillis()) }
+    var balanceText by remember {
+        mutableStateOf(account?.let { (it.initialBalance / 100.0).let { v -> if (it.initialBalance % 100 == 0L) "${it.initialBalance / 100}" else "%.2f".format(v) } } ?: draft?.balanceText ?: "")
+    }
+    var enableDate by remember {
+        mutableStateOf(account?.enableDate ?: draft?.enableDate?.takeIf { it > 0 } ?: com.youshu.ledger.domain.util.todayMillis())
+    }
     var showDatePicker by remember { mutableStateOf(false) }
+
+    /** 新建模式下把当前输入写入草稿 */
+    fun persistDraft() {
+        if (account == null) {
+            onDraftChange(CreateAccountDraft(name, iconKey, balanceText, enableDate))
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -329,7 +386,7 @@ private fun AccountEditDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = it; persistDraft() },
                     label = { Text("账户名称") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -350,7 +407,7 @@ private fun AccountEditDialog(
                                     if (selected) MaterialTheme.colorScheme.primaryContainer
                                     else Color.Transparent,
                                 )
-                                .clickable { iconKey = spec.key }
+                                .clickable { iconKey = spec.key; persistDraft() }
                                 .padding(6.dp),
                         ) {
                             AccountIcon(spec.key, 40.dp)
@@ -365,7 +422,7 @@ private fun AccountEditDialog(
                 }
                 OutlinedTextField(
                     value = balanceText,
-                    onValueChange = { balanceText = it },
+                    onValueChange = { balanceText = it; persistDraft() },
                     label = { Text("期初余额（元，可为负）") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -398,7 +455,7 @@ private fun AccountEditDialog(
     if (showDatePicker) {
         DayPickerDialog(
             initialMillis = enableDate,
-            onConfirm = { enableDate = it; showDatePicker = false },
+            onConfirm = { enableDate = it; persistDraft(); showDatePicker = false },
             onDismiss = { showDatePicker = false },
         )
     }
