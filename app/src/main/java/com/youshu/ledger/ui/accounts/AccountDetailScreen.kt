@@ -32,7 +32,10 @@ import com.youshu.ledger.data.local.entity.AccountEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
 import com.youshu.ledger.data.local.entity.TxnType
+import com.youshu.ledger.data.local.entity.effectiveEnableMillis
+import com.youshu.ledger.data.local.entity.effectiveTimeMillis
 import com.youshu.ledger.domain.util.formatDay
+import com.youshu.ledger.domain.util.formatEnableDay
 import com.youshu.ledger.domain.util.toLocalDate
 import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.ui.common.DayGroup
@@ -104,7 +107,7 @@ class AccountDetailViewModel(
         reimburseSum = reimbursements.sumOf { it.amount },
         attachmentCount = attachments.size,
         backfill = transaction.type != TxnType.TRANSFER &&
-            transaction.businessDate < (ui.value.account?.enableDate ?: Long.MIN_VALUE),
+            transaction.effectiveTimeMillis() < (ui.value.account?.effectiveEnableMillis() ?: Long.MIN_VALUE),
     )
 
     companion object {
@@ -156,7 +159,7 @@ fun AccountDetailScreen(
                         )
                         state.account?.let {
                             Text(
-                                "期初 ${it.initialBalance.toYuan()} · 启用 ${it.enableDate.formatDay()}",
+                                "期初 ${it.initialBalance.toYuan()} · 启用 ${formatEnableDay(it.enableDate, it.enableTimeOfDay)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline,
                             )

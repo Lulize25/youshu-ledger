@@ -148,4 +148,30 @@ class BalanceCalculatorTest {
         )
         assertEquals(550_00, balance(backfillRefunded))
     }
+
+    /** 补录判断精确到分钟：账户今天 14:00 启用，今天 09:00 的支出为补录不计余额，15:00 的支出计入 */
+    @Test
+    fun `backfill precise to minute against enable time`() {
+        val acc = account.copy(enableDate = today, enableTimeOfDay = 14 * 60)
+        val morning = expense(1, 100_00, date = today).copy(timeOfDay = 9 * 60)
+        val afternoon = expense(2, 100_00, date = today).copy(timeOfDay = 15 * 60)
+        assertEquals(500_00, BalanceCalculator.computeBalance(acc, listOf(detail(morning))))
+        assertEquals(400_00, BalanceCalculator.computeBalance(acc, listOf(detail(afternoon))))
+    }
+
+    /** 未记录时间的流水按当天 23:59 判定：启用日当天无时间流水仍计入余额（旧数据行为不变） */
+    @Test
+    fun `txn without time on enable day counts`() {
+        val acc = account.copy(enableDate = today, enableTimeOfDay = 14 * 60)
+        val noTime = expense(1, 100_00, date = today) // timeOfDay 默认 -1
+        assertEquals(400_00, BalanceCalculator.computeBalance(acc, listOf(detail(noTime))))
+    }
+
+    /** 未设置启用时间的账户按当天 00:00 判定：启用日当天任何流水都计入（旧账户行为不变） */
+    @Test
+    fun `account without enable time counts whole day`() {
+        val acc = account.copy(enableDate = today, enableTimeOfDay = -1)
+        val early = expense(1, 100_00, date = today).copy(timeOfDay = 0)
+        assertEquals(400_00, BalanceCalculator.computeBalance(acc, listOf(detail(early))))
+    }
 }

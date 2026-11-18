@@ -42,7 +42,7 @@ data class TxnDisplay(
     val refundSum: Long,
     val reimburseSum: Long,
     val attachmentCount: Int,
-    /** 补录：业务日期早于支出/收入账户的启用日期（转账不判定） */
+    /** 补录：生效时刻（业务日期+时间）早于账户启用时刻（转账不判定） */
     val backfill: Boolean,
 )
 

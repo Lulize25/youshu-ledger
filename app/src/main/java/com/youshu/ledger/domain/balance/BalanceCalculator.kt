@@ -4,13 +4,15 @@ import com.youshu.ledger.data.local.entity.AccountEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
 import com.youshu.ledger.data.local.entity.TxnType
+import com.youshu.ledger.data.local.entity.effectiveEnableMillis
+import com.youshu.ledger.data.local.entity.effectiveTimeMillis
 
 /**
  * 余额与补录核心规则（纯函数，可单元测试）。
  *
  * 【余额计算】
  * 账户当前余额 = 期初余额
- *   + Σ（业务日期 ≥ 账户启用日期 的流水影响）      —— 补录流水不参与
+ *   + Σ（生效时刻 ≥ 启用时刻 的流水影响）           —— 补录流水不参与（精确到分钟）
  *   + Σ（已记录的退款 + 报销 + 收回代付）           —— 发生即计入余额，与是否补录无关
  *
  * 流水影响：
@@ -19,7 +21,9 @@ import com.youshu.ledger.data.local.entity.TxnType
  * - 转账：转出 −金额（−手续费），转入 +金额
  *
  * 【补录规则】
- * 补录 = 业务日期早于账户启用日期的流水：允许录入、计入历史统计，但绝不改变余额；
+ * 补录 = 生效时刻（业务日期+时间，精确到分钟）早于账户启用时刻的流水：
+ * 允许录入、计入历史统计，但绝不改变余额；
+ * 未记录时间的流水按当天 23:59、未设置启用时间的账户按当天 00:00 处理（旧数据行为不变）。
  * 由于余额为「派生计算」而非增量记账，修改 / 删除任何流水天然正确回滚余额。
  *
  * 【统计口径】（退款/报销/收回在统计上归属原支出的业务日期）
@@ -67,8 +71,8 @@ object BalanceCalculator {
             // 收回代付只发生在支出账户（资金原路回到代付方）
             if (t.accountId == account.id) balance += t.recoveredAmount
 
-            // 2) 流水影响：仅业务日期 ≥ 启用日期才计入 —— 补录流水绝不改变余额
-            if (t.businessDate >= account.enableDate) {
+            // 2) 流水影响：仅生效时刻（业务日期+时间，精确到分钟）≥ 启用时刻才计入 —— 补录流水绝不改变余额
+            if (t.effectiveTimeMillis() >= account.effectiveEnableMillis()) {
                 balance += txnImpact(t, account.id)
             }
         }

@@ -44,6 +44,7 @@ data class AccountEntity(
     val iconKey: String,      // 账户图标（见 ui.common.AccountIcons），替代旧版类型字段
     val initialBalance: Long, // 期初余额（分），可为负
     val enableDate: Long,     // 启用日期（当天 00:00 的 epoch 毫秒），余额从这天起算
+    val enableTimeOfDay: Int = -1, // 启用当天的分钟数（0~1439），-1 = 未设置（从当天 00:00 起算）
     val sortOrder: Int,
     val archived: Boolean,
 )
@@ -205,3 +206,18 @@ data class TransactionWithDetails(
         entityColumn = "transactionId",
     ) val attachments: List<AttachmentEntity>,
 )
+
+/**
+ * 流水生效时刻（epoch 毫秒）= 业务日期 + 当天分钟数。
+ * 未记录时间的旧数据按当天 23:59 处理，保证「启用日当天无时间流水」永远计入余额（与旧版行为一致）。
+ */
+fun TransactionEntity.effectiveTimeMillis(): Long =
+    businessDate + (if (timeOfDay >= 0) timeOfDay else 1439) * 60_000L
+
+/**
+ * 账户启用时刻（epoch 毫秒）= 启用日期 + 启用当天分钟数。
+ * 未设置时间的旧账户按当天 00:00 处理（与旧版按天判断行为一致）；
+ * 设置了启用时间的账户，当天早于该时刻的流水将判为补录。
+ */
+fun AccountEntity.effectiveEnableMillis(): Long =
+    enableDate + (if (enableTimeOfDay >= 0) enableTimeOfDay else 0) * 60_000L

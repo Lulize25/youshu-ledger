@@ -41,6 +41,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,6 +66,8 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.AccountEntity
 import com.youshu.ledger.domain.util.formatDay
+import com.youshu.ledger.domain.util.formatEnableDay
+import com.youshu.ledger.domain.util.formatMinuteOfDay
 import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.ui.common.AccountIcon
 import com.youshu.ledger.ui.common.AccountIcons
@@ -89,6 +93,7 @@ data class CreateAccountDraft(
     val iconKey: String = "",
     val balanceText: String = "",
     val enableDate: Long = 0,
+    val enableTimeOfDay: Int = -1,
 )
 
 data class AccountsUiState(
@@ -351,7 +356,7 @@ private fun AccountRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.account.name, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${AccountIcons.of(item.account.iconKey).label} · 启用 ${item.account.enableDate.formatDay()}",
+                    "${AccountIcons.of(item.account.iconKey).label} · 启用 ${formatEnableDay(item.account.enableDate, item.account.enableTimeOfDay)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -393,7 +398,7 @@ private fun AccountRow(
     }
 }
 
-/** 新建/编辑账户对话框：名称、图标、期初余额、启用日期。
+/** 新建/编辑账户对话框：名称、图标、期初余额、启用日期与启用时间（精确到分钟）。
  *  新建模式支持草稿（draft + onDraftChange）：任何修改即持久化，
  *  进程被杀死后重建对话框内容不丢；保存或取消时清除。 */
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -415,12 +420,17 @@ private fun AccountEditDialog(
     var enableDate by remember {
         mutableStateOf(account?.enableDate ?: draft?.enableDate?.takeIf { it > 0 } ?: com.youshu.ledger.domain.util.todayMillis())
     }
+    // 启用时间：-1 = 未设置（当天 00:00 起算，旧行为）；新建默认未设置
+    var enableTimeOfDay by remember {
+        mutableStateOf(account?.enableTimeOfDay ?: draft?.enableTimeOfDay ?: -1)
+    }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     /** 新建模式下把当前输入写入草稿 */
     fun persistDraft() {
         if (account == null) {
-            onDraftChange(CreateAccountDraft(name, iconKey, balanceText, enableDate))
+            onDraftChange(CreateAccountDraft(name, iconKey, balanceText, enableDate, enableTimeOfDay))
         }
     }
 
@@ -472,9 +482,23 @@ private fun AccountEditDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TextButton(onClick = { showDatePicker = true }) {
-                    Text("启用日期：${enableDate.formatDay()}（余额从这天起算，之前为补录）")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showDatePicker = true }) {
+                        Text("启用日期：${enableDate.formatDay()}")
+                    }
+                    TextButton(onClick = { showTimePicker = true }) {
+                        Text(
+                            "启用时间：${formatMinuteOfDay(enableTimeOfDay).ifEmpty { "未设置" }}",
+                            color = if (enableTimeOfDay >= 0) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.outline,
+                        )
+                    }
                 }
+                Text(
+                    "余额从启用时刻起算，之前的流水记为补录；不设置时间则从当天 00:00 起算",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
             }
         },
         confirmButton = {
@@ -490,6 +514,7 @@ private fun AccountEditDialog(
                         iconKey = iconKey,
                         initialBalance = fen,
                         enableDate = enableDate,
+                        enableTimeOfDay = enableTimeOfDay,
                     ),
                 )
             }) { Text("保存") }
@@ -502,6 +527,35 @@ private fun AccountEditDialog(
             initialMillis = enableDate,
             onConfirm = { enableDate = it; persistDraft(); showDatePicker = false },
             onDismiss = { showDatePicker = false },
+        )
+    }
+
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = (enableTimeOfDay / 60).coerceIn(0, 23),
+            initialMinute = (enableTimeOfDay % 60).let { if (enableTimeOfDay < 0) 0 else it.coerceIn(0, 59) },
+        )
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            title = { Text("启用时间") },
+            text = { TimePicker(state = timePickerState) },
+            confirmButton = {
+                TextButton(onClick = {
+                    enableTimeOfDay = timePickerState.hour * 60 + timePickerState.minute
+                    persistDraft()
+                    showTimePicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        enableTimeOfDay = -1
+                        persistDraft()
+                        showTimePicker = false
+                    }) { Text("不设置") }
+                    TextButton(onClick = { showTimePicker = false }) { Text("取消") }
+                }
+            },
         )
     }
 }

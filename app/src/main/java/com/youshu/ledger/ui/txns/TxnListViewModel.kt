@@ -10,6 +10,8 @@ import com.youshu.ledger.data.local.entity.AccountEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
 import com.youshu.ledger.data.local.entity.TxnType
+import com.youshu.ledger.data.local.entity.effectiveEnableMillis
+import com.youshu.ledger.data.local.entity.effectiveTimeMillis
 import com.youshu.ledger.domain.util.toLocalDate
 import com.youshu.ledger.ui.common.DayGroup
 import com.youshu.ledger.ui.common.TxnDisplay
@@ -100,7 +102,7 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
         val account = accById[transaction.accountId]
         val backfill = when (transaction.type) {
             TxnType.TRANSFER -> false
-            else -> account != null && transaction.businessDate < account.enableDate
+            else -> account != null && transaction.effectiveTimeMillis() < account.effectiveEnableMillis()
         }
         return TxnDisplay(
             id = transaction.id,

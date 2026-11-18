@@ -57,6 +57,10 @@ fun currentMinuteOfDay(): Int {
 fun formatMinuteOfDay(minuteOfDay: Int): String =
     if (minuteOfDay < 0) "" else "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
 
+/** 账户启用时间展示：日期 + 分钟时间（未设置时间则只显示日期） */
+fun formatEnableDay(dayMillis: Long, minuteOfDay: Int): String =
+    dayMillis.formatDay() + if (minuteOfDay >= 0) " ${formatMinuteOfDay(minuteOfDay)}" else ""
+
 /** 将「yyyy-MM」与「yyyy-MM-dd」解析为当天 00:00 毫秒 */
 fun parseDayMillis(text: String): Long? = runCatching {
     LocalDate.parse(text, DAY_FMT).toEpochMillis()
