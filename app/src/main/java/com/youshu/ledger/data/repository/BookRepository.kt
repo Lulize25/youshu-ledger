@@ -28,6 +28,8 @@ class BookRepository(
 
     suspend fun getById(id: Long): BookEntity? = dao.getById(id)
 
+    suspend fun findByName(name: String): BookEntity? = dao.getByName(name)
+
     suspend fun createBook(name: String): Long =
         dao.upsert(BookEntity(name = name, createdAt = System.currentTimeMillis(), isDefault = false))
 

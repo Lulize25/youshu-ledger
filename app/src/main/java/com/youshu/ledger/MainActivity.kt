@@ -139,11 +139,10 @@ fun LedgerNavHost(container: AppContainer) {
                 com.youshu.ledger.ui.categories.CategoriesScreen(container, onBack = { nav.popBackStack() })
             }
             composable(Routes.BACKUP) {
-                // 数据备份与恢复（第七部分实现）
-                androidx.compose.foundation.layout.Box(
-                    modifier = Modifier.padding(padding),
-                    contentAlignment = androidx.compose.ui.Alignment.Center,
-                ) { Text("数据备份与恢复（第七部分实现）") }
+                com.youshu.ledger.ui.backup.BackupScreen(
+                    container = container,
+                    onBack = { nav.popBackStack() },
+                )
             }
         }
     }

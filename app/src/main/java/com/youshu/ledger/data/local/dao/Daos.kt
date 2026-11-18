@@ -36,6 +36,9 @@ interface BookDao {
     @Query("SELECT * FROM books WHERE isDefault = 1 LIMIT 1")
     suspend fun getDefault(): BookEntity?
 
+    @Query("SELECT * FROM books WHERE name = :name LIMIT 1")
+    suspend fun getByName(name: String): BookEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(book: BookEntity): Long
 
@@ -54,6 +57,9 @@ interface BookDao {
 
     @Query("SELECT COUNT(*) FROM books")
     suspend fun count(): Int
+
+    @Query("DELETE FROM books")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -76,6 +82,9 @@ interface AccountDao {
 
     @Delete
     suspend fun delete(account: AccountEntity)
+
+    @Query("DELETE FROM accounts")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -107,6 +116,9 @@ interface CategoryDao {
 
     @Query("SELECT COUNT(*) FROM categories WHERE bookId = :bookId")
     suspend fun countByBook(bookId: Long): Int
+
+    @Query("DELETE FROM categories")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -293,18 +305,6 @@ interface TransactionDao {
     @Query("DELETE FROM transactions")
     suspend fun clearAll()
 
-    @Query("DELETE FROM accounts")
-    suspend fun clearAccounts()
-
-    @Query("DELETE FROM categories")
-    suspend fun clearCategories()
-
-    @Query("DELETE FROM books")
-    suspend fun clearBooks()
-
-    @Query("DELETE FROM budgets")
-    suspend fun clearBudgets()
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertRefund(record: RefundRecordEntity): Long
 
@@ -356,6 +356,9 @@ interface BudgetDao {
 
     @Query("SELECT * FROM budgets WHERE bookId = :bookId AND yearMonth = :yearMonth AND categoryId = :categoryId LIMIT 1")
     suspend fun getCategoryBudget(bookId: Long, yearMonth: String, categoryId: Long): BudgetEntity?
+
+    @Query("DELETE FROM budgets")
+    suspend fun clearAll()
 }
 
 data class CategorySum(val categoryId: Long, val total: Long)

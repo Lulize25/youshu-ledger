@@ -3,6 +3,7 @@ package com.youshu.ledger.data
 import android.content.Context
 import com.youshu.ledger.data.local.db.LedgerDatabase
 import com.youshu.ledger.data.local.seed.DefaultDataSeeder
+import com.youshu.ledger.data.io.LedgerBackupManager
 import com.youshu.ledger.data.repository.AccountRepository
 import com.youshu.ledger.data.repository.BookRepository
 import com.youshu.ledger.data.repository.BudgetRepository
@@ -39,6 +40,11 @@ class AppContainer(context: Context) {
     val accountRepository = AccountRepository(accountDao, transactionDao)
     val categoryRepository = CategoryRepository(categoryDao)
     val budgetRepository = BudgetRepository(budgetDao)
+
+    /** JSON 全量备份/恢复 */
+    val backupManager = LedgerBackupManager(
+        context, bookDao, accountDao, categoryDao, transactionDao, budgetDao, settingsStore,
+    )
 
     val filesDir = context.filesDir
 
