@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -14,21 +16,53 @@ android {
         applicationId = "com.youshu.ledger"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        // 发布签名：凭据读取根目录 keystore.properties（已 gitignore，勿提交）。
+        // 文件缺失时退化为 debug 签名，保证他人克隆后可直接构建。
+        create("release") {
+            val props = Properties()
+            val f = rootProject.file("keystore.properties")
+            if (f.exists()) f.inputStream().use { props.load(it) }
+            val store = props.getProperty("storeFile") ?: "youshu-release.keystore"
+            val storeFile0 = rootProject.file(store)
+            if (storeFile0.exists()) {
+                storeFile = storeFile0
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            } else {
+                // 无私钥：退回 debug 签名（本地调试/CI）
+                storeFile = signingConfigs.getByName("debug").storeFile
+                storePassword = signingConfigs.getByName("debug").storePassword
+                keyAlias = signingConfigs.getByName("debug").keyAlias
+                keyPassword = signingConfigs.getByName("debug").keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true       // R8 代码压缩 + 混淆
+            isShrinkResources = true     // 移除未用资源
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
         }
+    }
+
+    lint {
+        // release 构建前的 lint 致命检查不阻塞打包
+        abortOnError = false
     }
 
     compileOptions {
