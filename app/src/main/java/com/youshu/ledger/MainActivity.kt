@@ -176,7 +176,8 @@ fun LedgerNavHost(
             }
         },
         floatingActionButton = {
-            if (showBottomBar) {
+            // 账户页有自己的「新建账户」FAB，其余主页面显示全局「记一笔」
+            if (showBottomBar && currentRoute == Routes.TXNS) {
                 FloatingActionButton(onClick = { nav.navigate(Routes.RECORD) }) {
                     Icon(Icons.Default.Add, contentDescription = "记一笔")
                 }
