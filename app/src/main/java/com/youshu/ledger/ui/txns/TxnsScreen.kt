@@ -53,6 +53,9 @@ import com.youshu.ledger.domain.util.formatDay
 import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.domain.util.weekDayCn
 import com.youshu.ledger.ui.common.CategoryBadge
+import com.youshu.ledger.ui.common.DayHeader
+import com.youshu.ledger.ui.common.TxnDisplay
+import com.youshu.ledger.ui.common.TxnRow
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.DayPickerDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
@@ -148,93 +151,6 @@ fun TxnsScreen(
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
-        )
-    }
-}
-
-@Composable
-private fun DayHeader(group: DayGroup) {
-    Column {
-        HorizontalDivider()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text(
-                    text = group.date.formatDay() + " " + group.date.weekDayCn(),
-                    fontWeight = FontWeight.Medium,
-                )
-                if (group.date == LocalDate.now()) {
-                    Text("今天", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            if (group.dayIncome > 0) {
-                Text("+${group.dayIncome.toYuan()}  ", color = MaterialTheme.colorScheme.income, fontSize = MaterialTheme.typography.bodySmall.fontSize)
-            }
-            if (group.dayExpense > 0) {
-                Text("-${group.dayExpense.toYuan()}", color = MaterialTheme.colorScheme.expense, fontSize = MaterialTheme.typography.bodySmall.fontSize)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TxnRow(item: TxnDisplay, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CategoryBadge(item.category)
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = when (item.type) {
-                    TxnType.EXPENSE -> item.category?.name ?: "支出"
-                    TxnType.INCOME -> item.category?.name ?: "收入"
-                    TxnType.TRANSFER -> "${item.accountName} → ${item.toAccountName ?: ""}"
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            val subtitle = buildString {
-                if (item.type == TxnType.TRANSFER) append("转账")
-                else append(item.accountName)
-                if (item.note.isNotBlank()) append(" · ${item.note}")
-                if (item.backfill) append(" · 补录")
-                if (item.refundSum > 0) append(" · 退${item.refundSum.toYuan()}")
-                if (item.reimburseSum > 0) append(" · 报${item.reimburseSum.toYuan()}")
-                if (item.attachmentCount > 0) append(" · ${item.attachmentCount}张附件")
-            }
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        val sign = when (item.type) {
-            TxnType.EXPENSE -> "-"
-            TxnType.INCOME -> "+"
-            TxnType.TRANSFER -> "⇄"
-        }
-        val color = when (item.type) {
-            TxnType.EXPENSE -> MaterialTheme.colorScheme.expense
-            TxnType.INCOME -> MaterialTheme.colorScheme.income
-            TxnType.TRANSFER -> MaterialTheme.colorScheme.onSurface
-        }
-        Text(
-            text = "$sign${item.amount.toYuan()}",
-            color = color,
-            fontWeight = FontWeight.SemiBold,
         )
     }
 }

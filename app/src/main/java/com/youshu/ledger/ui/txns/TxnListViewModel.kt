@@ -11,6 +11,8 @@ import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.domain.util.toLocalDate
+import com.youshu.ledger.ui.common.DayGroup
+import com.youshu.ledger.ui.common.TxnDisplay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,29 +23,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-
-/** 流水列表页展示模型 */
-data class TxnDisplay(
-    val id: Long,
-    val type: TxnType,
-    val amount: Long,
-    val businessDate: Long,
-    val note: String,
-    val category: CategoryEntity?,
-    val accountName: String,
-    val toAccountName: String?,
-    val refundSum: Long,
-    val reimburseSum: Long,
-    val attachmentCount: Int,
-    /** 补录：业务日期早于支出/收入账户的启用日期（转账不判定） */
-    val backfill: Boolean,
-)
-
-/** 按天分组：一天内的流水列表 */
-data class DayGroup(val date: LocalDate, val items: List<TxnDisplay>) {
-    val dayIncome: Long get() = items.filter { it.type == TxnType.INCOME }.sumOf { it.amount }
-    val dayExpense: Long get() = items.filter { it.type == TxnType.EXPENSE }.sumOf { it.amount }
-}
 
 data class TxnFilters(
     val accountId: Long? = null,

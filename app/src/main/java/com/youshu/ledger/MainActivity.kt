@@ -111,14 +111,39 @@ fun LedgerNavHost(container: AppContainer) {
                     onDone = { nav.popBackStack() },
                 )
             }
-            composable(Routes.ACCOUNTS) { AccountsScreen(container, onOpen = {}) }
+            composable(Routes.ACCOUNTS) {
+                AccountsScreen(container, onOpen = { nav.navigate(Routes.accountDetail(it)) })
+            }
+            composable(Routes.ACCOUNT_DETAIL) { entry ->
+                val id = entry.arguments?.getString("accountId")?.toLongOrNull() ?: 0L
+                com.youshu.ledger.ui.accounts.AccountDetailScreen(
+                    container = container,
+                    accountId = id,
+                    onEdit = { nav.navigate(Routes.recordEdit(it)) },
+                    onBack = { nav.popBackStack() },
+                )
+            }
             composable(Routes.STATS) { StatsScreen(container) }
             composable(Routes.SETTINGS) {
-                // 设置页在后续部分实现，先占位
+                com.youshu.ledger.ui.settings.SettingsScreen(
+                    container = container,
+                    onBooks = { nav.navigate(Routes.BOOKS) },
+                    onCategories = { nav.navigate(Routes.CATEGORIES) },
+                    onBackup = { nav.navigate(Routes.BACKUP) },
+                )
+            }
+            composable(Routes.BOOKS) {
+                com.youshu.ledger.ui.books.BooksScreen(container, onBack = { nav.popBackStack() })
+            }
+            composable(Routes.CATEGORIES) {
+                com.youshu.ledger.ui.categories.CategoriesScreen(container, onBack = { nav.popBackStack() })
+            }
+            composable(Routes.BACKUP) {
+                // 数据备份与恢复（第七部分实现）
                 androidx.compose.foundation.layout.Box(
                     modifier = Modifier.padding(padding),
                     contentAlignment = androidx.compose.ui.Alignment.Center,
-                ) { Text("设置（后续部分实现）") }
+                ) { Text("数据备份与恢复（第七部分实现）") }
             }
         }
     }
