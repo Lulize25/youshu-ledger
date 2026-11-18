@@ -1,43 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 启动图标前景：白色螺旋账本 + 钱袋（透出底色），参考用户提供的账本图标改为品牌绿 -->
+<!-- 启动图标前景层：内容全部在位图背景（ic_launcher_bg.png）中，此处为透明占位 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- 账本 -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M41,28 h28 a7,7 0 0 1 7,7 v38 a7,7 0 0 1 -7,7 h-28 a7,7 0 0 1 -7,-7 v-38 a7,7 0 0 1 7,-7 z" />
-    <!-- 螺旋装订（5 环） -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M26.5,37.5 h11 a2.5,2.5 0 0 1 0,5 h-11 a2.5,2.5 0 0 1 0,-5 z
-M26.5,47.5 h11 a2.5,2.5 0 0 1 0,5 h-11 a2.5,2.5 0 0 1 0,-5 z
-M26.5,57.5 h11 a2.5,2.5 0 0 1 0,5 h-11 a2.5,2.5 0 0 1 0,-5 z
-M26.5,67.5 h11 a2.5,2.5 0 0 1 0,5 h-11 a2.5,2.5 0 0 1 0,-5 z
-M26.5,75.5 h11 a2.5,2.5 0 0 1 0,5 h-11 a2.5,2.5 0 0 1 0,-5 z" />
-    <!-- 钱袋袋身（透出底色） -->
-    <path
-        android:fillColor="#2E7D32"
-        android:pathData="M40,60 a15,13 0 1 0 30,0 a15,13 0 1 0 -30,0 z" />
-    <!-- 袋口束颈 -->
-    <path
-        android:fillColor="#2E7D32"
-        android:pathData="M52,43 h6 v5 h-6 z" />
-    <!-- 束口布冠 -->
-    <path
-        android:fillColor="#2E7D32"
-        android:pathData="M49,44 L52.5,35.5 L55,40.5 L57.5,35.5 L61,44 Z" />
-    <!-- 美元符号（白色描边） -->
-    <path
-        android:pathData="M55,50.5 V69.5"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3"
-        android:strokeLineCap="round" />
-    <path
-        android:pathData="M61,53.8 C61,50.9 48.5,50.9 48.5,54 C48.5,57 61,57.3 61,60.8 C61,64 48.5,64 48.5,61.2"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3"
-        android:strokeLineCap="round" />
-</vector>
+    android:viewportHeight="108" />
