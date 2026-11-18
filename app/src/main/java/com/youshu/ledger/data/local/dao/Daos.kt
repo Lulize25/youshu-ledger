@@ -166,6 +166,10 @@ interface TransactionDao {
     )
     suspend fun getBalanceRelevant(accountId: Long, enableDate: Long): List<TransactionEntity>
 
+    /** 某账户的全部流水（含补录）：余额计算中退款/报销/收回「发生即计入」，需遍历全部流水 */
+    @Query("SELECT * FROM transactions WHERE accountId = :accountId OR toAccountId = :accountId")
+    suspend fun getAllTouchingAccount(accountId: Long): List<TransactionEntity>
+
     /** 某账户全部流水（用于删除账户前检查 / 单账户流水页，含补录） */
     @Transaction
     @Query("SELECT * FROM transactions WHERE accountId = :accountId OR toAccountId = :accountId ORDER BY businessDate DESC, createdAt DESC")
