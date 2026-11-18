@@ -11,12 +11,37 @@
 
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 桌面小组件：4×2 本月支出 + 预算进度 + 一键记一笔 -->
+        <receiver
+            android:name=".widget.LedgerWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_ledger_info" />
+        </receiver>
+
+        <!-- 桌面小组件：2×2 一键记一笔 -->
+        <receiver
+            android:name=".widget.QuickAddWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_add_info" />
+        </receiver>
 
         <!-- 拍照附件的 FileProvider -->
         <provider

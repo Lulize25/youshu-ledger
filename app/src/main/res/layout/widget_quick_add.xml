@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2×2 小组件：单击一键记一笔 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="@drawable/widget_bg">
+
+    <TextView
+        android:id="@+id/widget_quick_add_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="＋"
+        android:textSize="34sp"
+        android:textStyle="bold"
+        android:textColor="#2E7D32" />
+
+    <TextView
+        android:id="@+id/widget_quick_add_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="记一笔"
+        android:textSize="16sp"
+        android:textColor="#2E7D32" />
+</LinearLayout>

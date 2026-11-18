@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
  * 应用级依赖容器（手工 DI）。
  * 持有数据库、各 DAO、设置存储；应用启动时在 IO 协程中初始化默认数据。
  */
-class AppContainer(context: Context) {
+class AppContainer(private val context: Context) {
 
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -52,6 +52,17 @@ class AppContainer(context: Context) {
         // 首次启动：自动创建默认账本「日常账本」与预置分类
         appScope.launch(Dispatchers.IO) {
             DefaultDataSeeder.seedIfEmpty(bookDao, categoryDao, System.currentTimeMillis())
+        }
+        // 数据版本号变化 → 刷新桌面小组件，保证与 APP 内实时一致
+        appScope.launch {
+            var last = settingsStore.currentDataVersion()
+            settingsStore.dataVersion.collect { version ->
+                if (version != last) {
+                    last = version
+                    com.youshu.ledger.widget.LedgerWidgetProvider.updateAll(context)
+                    com.youshu.ledger.widget.QuickAddWidgetProvider.updateAll(context)
+                }
+            }
         }
     }
 }

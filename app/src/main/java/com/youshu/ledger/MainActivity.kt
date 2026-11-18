@@ -17,6 +17,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -38,13 +39,32 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var container: AppContainer
 
+    companion object {
+        /** 小组件「一键记一笔」跳转动作 */
+        const val ACTION_QUICK_ADD = "com.youshu.ledger.action.QUICK_ADD"
+    }
+
+    private val quickAddSignal = kotlinx.coroutines.flow.MutableStateFlow(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         container = (application as LedgerApp).container
+        handleIntent(intent)
         setContent {
             YoushuTheme {
-                LedgerNavHost(container)
+                LedgerNavHost(container, quickAddSignal)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: android.content.Intent?) {
+        if (intent?.action == ACTION_QUICK_ADD) {
+            quickAddSignal.value = true
         }
     }
 }
@@ -59,10 +79,22 @@ private val bottomItems = listOf(
 )
 
 @Composable
-fun LedgerNavHost(container: AppContainer) {
+fun LedgerNavHost(
+    container: AppContainer,
+    quickAddSignal: kotlinx.coroutines.flow.MutableStateFlow<Boolean> = kotlinx.coroutines.flow.MutableStateFlow(false),
+) {
     val nav: NavHostController = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+
+    // 小组件「一键记一笔」：收到信号后直达记一笔页面
+    val quickAdd by quickAddSignal.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(quickAdd) {
+        if (quickAdd) {
+            quickAddSignal.value = false
+            nav.navigate(Routes.RECORD)
+        }
+    }
 
     // 只有主页面显示底部导航与记一笔 FAB
     val showBottomBar = currentRoute in bottomItems.map { it.route }
