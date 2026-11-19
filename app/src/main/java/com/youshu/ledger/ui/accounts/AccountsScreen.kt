@@ -414,51 +414,60 @@ private fun AccountRow(
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clickable(onClick = onClick),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AccountIcon(item.account.iconKey, 40.dp)
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(item.account.name, style = MaterialTheme.typography.titleMedium)
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AccountIcon(item.account.iconKey, 40.dp)
+                Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    "${formatEnableDay(item.account.enableDate, item.account.enableTimeOfDay)} 校准",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    item.account.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                Text(
+                    text = item.balance.toYuan() + " 元",
+                    color = if (item.balance < 0) MaterialTheme.colorScheme.expense else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                )
+                Box {
+                    IconButton(onClick = { menu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                    }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("编辑") },
+                            leadingIcon = { Icon(Icons.Default.Edit, null) },
+                            onClick = { menu = false; onEdit() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (item.account.archived) "取消归档" else "归档") },
+                            leadingIcon = {
+                                Icon(if (item.account.archived) Icons.Default.Unarchive else Icons.Default.Archive, null)
+                            },
+                            onClick = { menu = false; onArchive() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("删除", color = MaterialTheme.colorScheme.expense) },
+                            leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
+                            onClick = { menu = false; onDelete() },
+                        )
+                    }
+                }
             }
+            // 小字：在名称和余额整行下方通栏显示，不与余额挤在同一行
             Text(
-                text = item.balance.toYuan() + " 元",
-                color = if (item.balance < 0) MaterialTheme.colorScheme.expense else MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleMedium,
+                "${formatEnableDay(item.account.enableDate, item.account.enableTimeOfDay)} 校准",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
             )
-            Box {
-                IconButton(onClick = { menu = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "更多")
-                }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("编辑") },
-                        leadingIcon = { Icon(Icons.Default.Edit, null) },
-                        onClick = { menu = false; onEdit() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (item.account.archived) "取消归档" else "归档") },
-                        leadingIcon = {
-                            Icon(if (item.account.archived) Icons.Default.Unarchive else Icons.Default.Archive, null)
-                        },
-                        onClick = { menu = false; onArchive() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("删除", color = MaterialTheme.colorScheme.expense) },
-                        leadingIcon = { Icon(Icons.Default.DeleteOutline, null) },
-                        onClick = { menu = false; onDelete() },
-                    )
-                }
-            }
         }
     }
 }

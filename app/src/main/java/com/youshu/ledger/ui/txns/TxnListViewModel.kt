@@ -49,6 +49,8 @@ data class TxnListUiState(
     val filters: TxnFilters = TxnFilters(),
     val totalIncome: Long = 0,
     val totalExpense: Long = 0,
+    /** 每笔流水「经过这一步之后」各涉及账户的余额：txnId →（账户名 → 余额） */
+    val balancesAfter: Map<Long, Map<String, Long>> = emptyMap(),
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -73,7 +75,8 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
                     ),
                     accountRepo.observeByBook(book.id),
                     categoryRepo.observeAll(),
-                ) { txns, accounts, categories ->
+                    txnRepo.observeByBook(book.id),
+                ) { txns, accounts, categories, allTxns ->
                     val accById = accounts.associateBy { it.id }
                     val catById = categories.associateBy { it.id }
                     val displays = txns.map { it.toDisplay(accById, catById) }
@@ -90,6 +93,7 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
                         filters = f,
                         totalIncome = displays.filter { it.type == TxnType.INCOME }.sumOf { it.amount },
                         totalExpense = displays.filter { it.type == TxnType.EXPENSE }.sumOf { it.amount },
+                        balancesAfter = buildBalancesAfter(allTxns, accounts),
                     )
                 }
             }
@@ -120,6 +124,78 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
             attachmentCount = attachments.size,
             backfill = backfill,
         )
+    }
+
+    /**
+     * 计算每笔流水「经过这一步之后」各涉及账户的余额：
+     * 把账本内全部流水按账户展开成事件流（流水影响 / 退款 / 报销 / 收回代付，各带发生时刻），
+     * 再对每个账户做按时间排序的前缀和；某笔流水之后的余额 = 期初 + 时刻 ≤ 该流水生效时刻的事件合计。
+     */
+    private fun buildBalancesAfter(
+        allTxns: List<TransactionWithDetails>,
+        accounts: List<AccountEntity>,
+    ): Map<Long, Map<String, Long>> {
+        val eventsByAccount = HashMap<Long, MutableList<Pair<Long, Long>>>() // accountId -> (时刻, 变动)
+        fun addEvent(accountId: Long?, timeMillis: Long, delta: Long) {
+            if (accountId == null || delta == 0L) return
+            eventsByAccount.getOrPut(accountId) { mutableListOf() }.add(timeMillis to delta)
+        }
+        allTxns.forEach { d ->
+            val t = d.transaction
+            val eff = t.effectiveTimeMillis()
+            when (t.type) {
+                TxnType.EXPENSE -> addEvent(t.accountId, eff, -t.amount)
+                TxnType.INCOME -> addEvent(t.accountId, eff, t.amount)
+                TxnType.TRANSFER -> {
+                    addEvent(t.accountId, eff, -(t.amount + t.fee))
+                    addEvent(t.toAccountId, eff, t.amount)
+                }
+            }
+            d.refunds.forEach { addEvent(it.accountId, it.timeMillis, it.amount) }
+            d.reimbursements.forEach { addEvent(it.accountId, it.timeMillis, it.amount) }
+            addEvent(t.accountId, eff, t.recoveredAmount) // 收回代付（发生即计入）
+        }
+
+        // 每个账户：按时刻排序 + 前缀和，balanceAt(acc, t) = 期初 + Σ(时刻 ≤ t)
+        val prefixByAccount = HashMap<Long, Pair<LongArray, LongArray>>() // accountId -> (sortedTimes, cumulative)
+        val initialOf = accounts.associate { it.id to it.initialBalance }
+        eventsByAccount.forEach { (accId, events) ->
+            val sorted = events.sortedBy { it.first }
+            val times = LongArray(sorted.size)
+            val cum = LongArray(sorted.size + 1)
+            sorted.forEachIndexed { i, (time, delta) ->
+                times[i] = time
+                cum[i + 1] = cum[i] + delta
+            }
+            prefixByAccount[accId] = times to cum
+        }
+        fun balanceAt(accId: Long, timeMillis: Long): Long {
+            val p = prefixByAccount[accId] ?: return initialOf[accId] ?: 0L
+            // times 中 ≤ timeMillis 的个数（同一时刻的事件全部计入）
+            var lo = 0
+            var hi = p.first.size
+            while (lo < hi) {
+                val mid = (lo + hi) / 2
+                if (p.first[mid] <= timeMillis) lo = mid + 1 else hi = mid
+            }
+            return (initialOf[accId] ?: 0L) + p.second[lo]
+        }
+
+        return allTxns.associate { d ->
+            val t = d.transaction
+            val eff = t.effectiveTimeMillis()
+            val involved = buildList {
+                add(t.accountId)
+                t.toAccountId?.let { add(it) }
+                d.refunds.forEach { add(it.accountId) }
+                d.reimbursements.forEach { add(it.accountId) }
+            }.distinct()
+            val named = involved.mapNotNull { id ->
+                val name = accounts.firstOrNull { it.id == id }?.name ?: return@mapNotNull null
+                name to balanceAt(id, eff)
+            }
+            t.id to named.toMap()
+        }
     }
 
     fun updateFilters(f: TxnFilters) {

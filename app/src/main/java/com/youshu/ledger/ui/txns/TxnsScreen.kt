@@ -136,6 +136,7 @@ fun TxnsScreen(
                         items(group.items, key = { it.id }) { item ->
                             TxnRow(
                                 item = item,
+                                balancesAfter = state.balancesAfter[item.id],
                                 onClick = { onEdit(item.id) },
                             )
                         }
