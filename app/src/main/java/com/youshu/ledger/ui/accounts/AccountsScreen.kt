@@ -79,7 +79,7 @@ import com.youshu.ledger.ui.common.AccountIcon
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.DayPickerDialog
 import com.youshu.ledger.ui.common.DateTimeButtonsRow
-import com.youshu.ledger.ui.common.LedgerTopBar
+import com.youshu.ledger.ui.common.BookTopBar
 import com.youshu.ledger.ui.common.MoneyInputDialog
 import com.youshu.ledger.ui.common.moneyTextToFen
 import com.youshu.ledger.ui.common.normalizeIconText
@@ -229,11 +229,8 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
 
     Scaffold(
         topBar = {
-            Column {
-                // 账本切换：页面最顶部，字号放大
-                com.youshu.ledger.ui.common.BookSwitcherBar(container, large = true)
-                LedgerTopBar(title = "账户")
-            }
+            // 一根顶栏：最顶部是账本切换（大字），下方是页面标题
+            BookTopBar(container = container, title = "账户")
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreate = true }) {

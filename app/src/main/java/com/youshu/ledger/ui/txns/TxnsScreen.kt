@@ -51,7 +51,7 @@ import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.domain.util.formatTime
 import com.youshu.ledger.domain.util.weekDayCn
-import com.youshu.ledger.ui.common.BookSwitcherBar
+import com.youshu.ledger.ui.common.BookTopBar
 import com.youshu.ledger.ui.common.CategoryBadge
 import com.youshu.ledger.ui.common.DateTimeButtonsRow
 import com.youshu.ledger.ui.common.DayHeader
@@ -85,18 +85,16 @@ fun TxnsScreen(
 
     Scaffold(
         topBar = {
-            Column {
-                // 账本切换：页面最顶部，字号放大
-                BookSwitcherBar(container = container, large = true)
-                LedgerTopBar(
-                    title = "流水",
-                    actions = {
-                        IconButton(onClick = { showFilters = !showFilters }) {
-                            Icon(Icons.Default.Search, contentDescription = "筛选")
-                        }
-                    },
-                )
-            }
+            // 一根顶栏：最顶部是账本切换（大字），下方是页面标题
+            BookTopBar(
+                container = container,
+                title = "流水",
+                actions = {
+                    IconButton(onClick = { showFilters = !showFilters }) {
+                        Icon(Icons.Default.Search, contentDescription = "筛选")
+                    }
+                },
+            )
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->

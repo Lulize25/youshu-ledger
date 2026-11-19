@@ -46,7 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.domain.stats.PeriodType
 import com.youshu.ledger.domain.util.toYuan
-import com.youshu.ledger.ui.common.BookSwitcherBar
+import com.youshu.ledger.ui.common.BookTopBar
 import com.youshu.ledger.ui.common.LedgerTopBar
 import com.youshu.ledger.ui.theme.expense
 import com.youshu.ledger.ui.theme.income
@@ -64,11 +64,8 @@ fun StatsScreen(container: AppContainer) {
 
     Scaffold(
         topBar = {
-            Column {
-                // 账本切换：页面最顶部，字号放大
-                BookSwitcherBar(container = container, large = true)
-                LedgerTopBar(title = "统计")
-            }
+            // 一根顶栏：最顶部是账本切换（大字），下方是页面标题
+            BookTopBar(container = container, title = "统计")
         },
     ) { padding ->
         Column(

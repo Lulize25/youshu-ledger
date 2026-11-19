@@ -281,16 +281,11 @@ fun DateTimeButtonsRow(
     }
 }
 
-/**
- * 账本切换栏：放在每个主页面**最顶部**（标题栏之上）。
- * [large] = true 时使用更大字号（主页面顶部）。
- */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 账本切换行（无外边距，供 BookSwitcherBar / BookTopBar 复用） */
 @Composable
-fun BookSwitcherBar(
+private fun BookSwitcherRow(
     container: com.youshu.ledger.data.AppContainer,
-    modifier: Modifier = Modifier,
-    large: Boolean = false,
+    style: androidx.compose.ui.text.TextStyle,
 ) {
     val books by container.bookRepository.observeAll()
         .collectAsState(emptyList())
@@ -298,23 +293,17 @@ fun BookSwitcherBar(
         .collectAsState(null)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = if (large) 6.dp else 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             "账本：${current?.name ?: "…"}",
-            style = if (large) MaterialTheme.typography.titleMedium
-            else MaterialTheme.typography.bodyMedium,
-            fontWeight = if (large) FontWeight.Medium else null,
+            style = style,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
         )
         Box {
-            TextButton(onClick = { menu = true }) { Text("切换") }
+            TextButton(onClick = { menu = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) { Text("切换") }
             androidx.compose.material3.DropdownMenu(
                 expanded = menu,
                 onDismissRequest = { menu = false },
@@ -333,6 +322,63 @@ fun BookSwitcherBar(
             }
         }
     }
+}
+
+/**
+ * 账本切换栏（带外边距的独立行，适合放在内容区顶部）。
+ * [large] = true 时使用更大字号。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BookSwitcherBar(
+    container: com.youshu.ledger.data.AppContainer,
+    modifier: Modifier = Modifier,
+    large: Boolean = false,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = if (large) 6.dp else 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BookSwitcherRow(
+            container,
+            if (large) MaterialTheme.typography.titleMedium
+            else MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+/**
+ * 主页面顶栏：**一根** TopAppBar，标题区内上方是账本切换行（较大字号），下方是页面标题。
+ * 避免「账本栏 + 标题栏」两根 Bar 叠放产生的大空隙。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BookTopBar(
+    container: com.youshu.ledger.data.AppContainer,
+    title: String,
+    onBack: (() -> Unit)? = null,
+    actions: @Composable () -> Unit = {},
+) {
+    TopAppBar(
+        title = {
+            Column {
+                // 顶栏最顶部：账本切换（titleMedium）
+                BookSwitcherRow(container, MaterialTheme.typography.titleMedium)
+                // 页面标题（TopAppBar 标题槽默认 titleLarge 样式）
+                Text(title)
+            }
+        },
+        navigationIcon = {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                }
+            }
+        },
+        actions = { actions() },
+    )
 }
 
 /** 通用确认对话框 */
