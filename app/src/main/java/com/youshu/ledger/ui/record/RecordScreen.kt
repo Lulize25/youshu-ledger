@@ -94,7 +94,7 @@ import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.ui.common.AccountIcon
 import com.youshu.ledger.ui.common.CategoryBadge
 import com.youshu.ledger.ui.common.ConfirmDialog
-import com.youshu.ledger.ui.common.DateTimePickerDialog
+import com.youshu.ledger.ui.common.DateTimeButtonsRow
 import com.youshu.ledger.ui.common.DayPickerDialog
 import com.youshu.ledger.ui.common.MinutePickerDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
@@ -860,7 +860,6 @@ private fun RefundReimburseDialog(
     }
     var accountId by remember { mutableStateOf<Long?>(null) }
     var timeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
-    var showTimePicker by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var accountMenu by remember { mutableStateOf(false) }
 
@@ -907,12 +906,13 @@ private fun RefundReimburseDialog(
                         }
                     }
                 }
-                // 时间（必填，默认当前）
-                OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.DateRange, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(timeMillis.formatTime(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                // 时间（必填，默认当前；左日期右时刻两栏）
+                DateTimeButtonsRow(
+                    millis = timeMillis,
+                    onMillisChange = { timeMillis = it },
+                    datePickerTitle = "发生日期",
+                    timePickerTitle = "发生时刻",
+                )
                 // 备注（可选）
                 OutlinedTextField(
                     value = note,
@@ -935,15 +935,6 @@ private fun RefundReimburseDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
-
-    if (showTimePicker) {
-        DateTimePickerDialog(
-            initialMillis = timeMillis,
-            title = "发生时间",
-            onConfirm = { timeMillis = it; showTimePicker = false },
-            onDismiss = { showTimePicker = false },
-        )
-    }
 }
 
 /** 代付区块：按「谁」逐人登记；填了最后一行自动出现新行，只有最后一行允许留空 */
@@ -1018,7 +1009,6 @@ private fun AdvanceRow(
     isDraft: Boolean = false,
 ) {
     var showAmountDialog by remember { mutableStateOf(false) }
-    var showTimePicker by remember { mutableStateOf(false) }
     var accountMenu by remember { mutableStateOf(false) }
 
     Card(
@@ -1049,13 +1039,17 @@ private fun AdvanceRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
-                    Text(
-                        record.timeMillis?.formatTime() ?: "时间",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                // 时间：左日期右时刻两栏（未设置时显示占位文字；空间紧凑用短格式）
+                DateTimeButtonsRow(
+                    millis = record.timeMillis ?: System.currentTimeMillis(),
+                    onMillisChange = { onChange(record.copy(timeMillis = it)) },
+                    modifier = Modifier.weight(1.6f),
+                    spacing = 4.dp,
+                    datePickerTitle = "代付日期",
+                    timePickerTitle = "代付时刻",
+                    dateText = record.timeMillis?.formatDay()?.takeLast(5) ?: "日期",
+                    timeText = record.timeMillis?.formatTime()?.substringAfter(' ') ?: "时刻",
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ExposedDropdownMenuBox(
@@ -1104,14 +1098,6 @@ private fun AdvanceRow(
             allowEmpty = true,
             onConfirm = { onChange(record.copy(amount = it.takeIf { v -> v > 0 })); showAmountDialog = false },
             onDismiss = { showAmountDialog = false },
-        )
-    }
-    if (showTimePicker) {
-        DateTimePickerDialog(
-            initialMillis = record.timeMillis ?: System.currentTimeMillis(),
-            title = "代付时间",
-            onConfirm = { onChange(record.copy(timeMillis = it)); showTimePicker = false },
-            onDismiss = { showTimePicker = false },
         )
     }
 }

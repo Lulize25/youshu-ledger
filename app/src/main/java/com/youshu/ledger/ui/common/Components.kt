@@ -5,16 +5,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
@@ -23,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,10 +45,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.youshu.ledger.data.local.entity.CategoryEntity
+import com.youshu.ledger.domain.util.formatDay
+import com.youshu.ledger.domain.util.formatMinuteOfDay
 import com.youshu.ledger.domain.util.toEpochMillis
 import com.youshu.ledger.domain.util.toLocalDate
 import com.youshu.ledger.domain.util.toYuan
@@ -210,44 +216,69 @@ fun MinutePickerDialog(
 }
 
 /**
- * 日期时间一体选择对话框：同一个对话框里先选日期、再选时间，一次确定。
+ * 日期时间两栏选择（全应用统一的日期时间入口）：左「日历」选日期、右「时钟」选当天时刻，
+ * 各自弹独立对话框（日历 / 表盘）。改日期保留原时刻，改时刻保留原日期。
+ *
+ * @param dateText/timeText 覆盖按钮文字（如筛选未设置时显示「不限」）；null 则按 millis 格式化
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DateTimePickerDialog(
-    initialMillis: Long,
-    title: String = "选择日期时间",
-    onConfirm: (Long) -> Unit,
-    onDismiss: () -> Unit,
+fun DateTimeButtonsRow(
+    millis: Long,
+    onMillisChange: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+    spacing: Dp = 8.dp,
+    datePickerTitle: String = "选择日期",
+    timePickerTitle: String = "选择时间",
+    dateText: String? = null,
+    timeText: String? = null,
 ) {
-    val dayStart = initialMillis.toLocalDate().toEpochMillis()
-    val minuteOfDay = ((initialMillis - dayStart) / 60_000L).toInt().coerceIn(0, 1439)
-    // 同 DayPickerDialog：DatePicker 是 UTC 语义，需换算避免东八区差一天
-    val utcMillis = initialMillis.toLocalDate().atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
-    val dateState = rememberDatePickerState(initialSelectedDateMillis = utcMillis)
-    val timeState = rememberTimePickerState(
-        initialHour = minuteOfDay / 60,
-        initialMinute = minuteOfDay % 60,
-    )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(modifier = Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
-                DatePicker(state = dateState)
-                TimePicker(state = timeState)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val utc = dateState.selectedDateMillis ?: return@TextButton
-                val dayStart = java.time.Instant.ofEpochMilli(utc).atZone(java.time.ZoneOffset.UTC)
-                    .toLocalDate().toEpochMillis()
-                onConfirm(dayStart + (timeState.hour * 60 + timeState.minute) * 60_000L)
-            }) { Text("确定") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    val dayStart = millis.toLocalDate().toEpochMillis()
+    val minuteOfDay = ((millis - dayStart) / 60_000L).toInt().coerceIn(0, 1439)
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(spacing)) {
+        OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Default.DateRange, contentDescription = null)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = dateText ?: millis.formatDay(),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Default.Schedule, contentDescription = null)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = timeText ?: formatMinuteOfDay(minuteOfDay),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    if (showDatePicker) {
+        DayPickerDialog(
+            initialMillis = millis,
+            onConfirm = { dayMillis ->
+                onMillisChange(dayMillis + minuteOfDay * 60_000L)
+                showDatePicker = false
+            },
+            onDismiss = { showDatePicker = false },
+        )
+    }
+    if (showTimePicker) {
+        MinutePickerDialog(
+            title = timePickerTitle,
+            initialMinuteOfDay = minuteOfDay,
+            onConfirm = { min ->
+                onMillisChange(dayStart + min * 60_000L)
+                showTimePicker = false
+            },
+            onDismiss = { showTimePicker = false },
+        )
+    }
 }
 
 /**

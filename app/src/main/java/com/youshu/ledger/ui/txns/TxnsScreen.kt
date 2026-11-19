@@ -53,7 +53,7 @@ import com.youshu.ledger.domain.util.formatTime
 import com.youshu.ledger.domain.util.weekDayCn
 import com.youshu.ledger.ui.common.BookSwitcherBar
 import com.youshu.ledger.ui.common.CategoryBadge
-import com.youshu.ledger.ui.common.DateTimePickerDialog
+import com.youshu.ledger.ui.common.DateTimeButtonsRow
 import com.youshu.ledger.ui.common.DayHeader
 import com.youshu.ledger.ui.common.TxnDisplay
 import com.youshu.ledger.ui.common.TxnRow
@@ -261,45 +261,48 @@ private fun FilterBar(
                     }
                 }
             }
-            // 时间区间（起始/截止各自精确到分钟）
-            var dateTarget by remember { mutableStateOf<String?>(null) }
-            FilterChip(
-                selected = f.startDate != null,
-                onClick = { dateTarget = "start" },
-                label = {
-                    Text(
-                        "起始 " + (f.startDate?.formatTime() ?: "不限"),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-            )
-            FilterChip(
-                selected = f.endDate != null,
-                onClick = { dateTarget = "end" },
-                label = {
-                    Text(
-                        "截止 " + (f.endDate?.formatTime() ?: "不限"),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-            )
+            // 时间区间（起始/截止各自精确到分钟；未设置显示「不限」，可单独清除）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("起始", style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.width(8.dp))
+                DateTimeButtonsRow(
+                    millis = f.startDate ?: System.currentTimeMillis(),
+                    onMillisChange = { onFilters(f.copy(startDate = it)) },
+                    modifier = Modifier.weight(1f),
+                    spacing = 6.dp,
+                    datePickerTitle = "起始日期",
+                    timePickerTitle = "起始时刻",
+                    dateText = if (f.startDate == null) "不限" else null,
+                    timeText = if (f.startDate == null) "不限" else null,
+                )
+                if (f.startDate != null) {
+                    IconButton(onClick = { onFilters(f.copy(startDate = null)) }) {
+                        Icon(Icons.Default.Close, contentDescription = "清除起始时间")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("截止", style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.width(8.dp))
+                DateTimeButtonsRow(
+                    millis = f.endDate ?: System.currentTimeMillis(),
+                    onMillisChange = { onFilters(f.copy(endDate = it)) },
+                    modifier = Modifier.weight(1f),
+                    spacing = 6.dp,
+                    datePickerTitle = "截止日期",
+                    timePickerTitle = "截止时刻",
+                    dateText = if (f.endDate == null) "不限" else null,
+                    timeText = if (f.endDate == null) "不限" else null,
+                )
+                if (f.endDate != null) {
+                    IconButton(onClick = { onFilters(f.copy(endDate = null)) }) {
+                        Icon(Icons.Default.Close, contentDescription = "清除截止时间")
+                    }
+                }
+            }
             if (f.active) {
                 TextButton(onClick = { onFilters(TxnFilters()); onClose() }) { Text("清除筛选") }
-            }
-            if (dateTarget != null) {
-                DateTimePickerDialog(
-                    initialMillis = (if (dateTarget == "start") f.startDate else f.endDate) ?: System.currentTimeMillis(),
-                    title = if (dateTarget == "start") "起始时间" else "截止时间",
-                    onConfirm = { millis ->
-                        onFilters(if (dateTarget == "start") f.copy(startDate = millis) else f.copy(endDate = millis))
-                        dateTarget = null
-                    },
-                    onDismiss = { dateTarget = null },
-                )
             }
         }
         Spacer(modifier = Modifier.height(8.dp))

@@ -78,6 +78,7 @@ import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.ui.common.AccountIcon
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.DayPickerDialog
+import com.youshu.ledger.ui.common.DateTimeButtonsRow
 import com.youshu.ledger.ui.common.LedgerTopBar
 import com.youshu.ledger.ui.common.MoneyInputDialog
 import com.youshu.ledger.ui.common.moneyTextToFen
@@ -225,8 +226,6 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
     // 有未保存草稿（如进程被杀后重建）时直接恢复新建对话框
     var showCreate by remember { mutableStateOf(vm.createDraftOrNull() != null) }
     var pendingDelete by remember { mutableStateOf<AccountEntity?>(null) }
-    // 余额截至时间选择（日期时间一体）
-    var showAsOfTimePicker by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = { LedgerTopBar(title = "账户") },
@@ -246,31 +245,38 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
             item(key = "book_bar") {
                 com.youshu.ledger.ui.common.BookSwitcherBar(container)
             }
-            // 截至时间选择：各账户余额与合计均按所选时刻计算（默认当前时间；日期时间一体选择）
+            // 截至时间选择：各账户余额与合计均按所选时刻计算（默认当前时间；
+            // 左「日历」选日期、右「时钟」选时刻，各自独立修改）
             item(key = "as_of") {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = if (state.asOfMillis == null) {
-                            "余额截至：现在"
-                        } else {
-                            "余额截至：${state.effectiveAsOf.formatTime()}"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (state.asOfMillis == null) MaterialTheme.colorScheme.outline
-                        else MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    TextButton(onClick = { showAsOfTimePicker = true }) { Text("选择时间") }
-                    if (state.asOfMillis != null) {
-                        TextButton(onClick = { vm.setAsOf(null) }) { Text("回到现在") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (state.asOfMillis == null) {
+                                "余额截至：现在"
+                            } else {
+                                "余额截至：${state.effectiveAsOf.formatTime()}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (state.asOfMillis == null) MaterialTheme.colorScheme.outline
+                            else MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (state.asOfMillis != null) {
+                            TextButton(onClick = { vm.setAsOf(null) }) { Text("回到现在") }
+                        }
                     }
+                    DateTimeButtonsRow(
+                        millis = state.effectiveAsOf,
+                        onMillisChange = { vm.setAsOf(it) },
+                        datePickerTitle = "余额截至日期",
+                        timePickerTitle = "余额截至时刻",
+                    )
                 }
             }
             // 合计栏：所有未归档账户余额之和（净资产）
@@ -343,18 +349,6 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
             }
             item { Spacer(modifier = Modifier.padding(24.dp)) }
         }
-    }
-
-    if (showAsOfTimePicker) {
-        com.youshu.ledger.ui.common.DateTimePickerDialog(
-            initialMillis = state.effectiveAsOf,
-            title = "余额截至时间",
-            onConfirm = { millis ->
-                vm.setAsOf(millis)
-                showAsOfTimePicker = false
-            },
-            onDismiss = { showAsOfTimePicker = false },
-        )
     }
 
     if (showCreate) {
