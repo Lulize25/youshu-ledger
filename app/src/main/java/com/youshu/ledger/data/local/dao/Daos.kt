@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import com.youshu.ledger.data.local.entity.AccountEntity
+import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.BudgetEntity
@@ -146,8 +147,9 @@ interface TransactionDao {
     suspend fun getById(id: Long): TransactionEntity?
 
     /**
-     * 按条件筛选流水（账本/账户/分类/类型/备注关键字/日期区间），均传 null 表示不限制。
+     * 按条件筛选流水（账本/账户/分类/类型/备注关键字/时间区间），均传 null 表示不限制。
      * 账户匹配转出或转入（转账双向命中）。
+     * 时间区间按「生效时刻」（业务日期+当天分钟，未记录时间的流水按当天 00:00~23:59 处理）比较。
      */
     @Transaction
     @Query(
@@ -156,8 +158,10 @@ interface TransactionDao {
              AND (:categoryId IS NULL OR categoryId = :categoryId)
              AND (:type IS NULL OR type = :type)
              AND (:keyword IS NULL OR note LIKE '%' || :keyword || '%')
-             AND (:startDate IS NULL OR businessDate >= :startDate)
-             AND (:endDate IS NULL OR businessDate <= :endDate)
+             AND (:startMillis IS NULL OR businessDate +
+                  CASE WHEN timeOfDay >= 0 THEN timeOfDay ELSE 1439 END * 60000 >= :startMillis)
+             AND (:endMillis IS NULL OR businessDate +
+                  CASE WHEN timeOfDay >= 0 THEN timeOfDay ELSE 0 END * 60000 <= :endMillis)
            ORDER BY businessDate DESC, createdAt DESC, id DESC""",
     )
     fun observeFiltered(
@@ -166,8 +170,8 @@ interface TransactionDao {
         categoryId: Long?,
         type: TxnType?,
         keyword: String?,
-        startDate: Long?,
-        endDate: Long?,
+        startMillis: Long?,
+        endMillis: Long?,
     ): Flow<List<TransactionWithDetails>>
 
     /** 指定账户、且业务日期 >= 启用日期的流水（余额计算专用） */
@@ -177,8 +181,16 @@ interface TransactionDao {
     )
     suspend fun getBalanceRelevant(accountId: Long, enableDate: Long): List<TransactionEntity>
 
-    /** 某账户的全部流水（含补录）：余额计算中退款/报销/收回「发生即计入」，需遍历全部流水 */
-    @Query("SELECT * FROM transactions WHERE accountId = :accountId OR toAccountId = :accountId")
+    /**
+     * 某账户涉及的全部流水（含补录）：余额计算中退款/报销/收回「发生即计入」，需遍历全部流水。
+     * 包括：转出/转入账户为本账户，或存在退款/报销记录指定到账本账户的流水。
+     */
+    @Query(
+        """SELECT * FROM transactions WHERE
+             accountId = :accountId OR toAccountId = :accountId
+             OR EXISTS (SELECT 1 FROM refund_records r WHERE r.transactionId = transactions.id AND r.accountId = :accountId)
+             OR EXISTS (SELECT 1 FROM reimburse_records b WHERE b.transactionId = transactions.id AND b.accountId = :accountId)""",
+    )
     suspend fun getAllTouchingAccount(accountId: Long): List<TransactionEntity>
 
     /** 某账户全部流水（用于删除账户前检查 / 单账户流水页，含补录） */
@@ -321,6 +333,23 @@ interface TransactionDao {
 
     @Delete
     suspend fun deleteReimburse(record: ReimburseRecordEntity)
+
+    // ---------- 代付人明细 ----------
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAdvance(record: AdvanceRecordEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAdvances(records: List<AdvanceRecordEntity>)
+
+    @Delete
+    suspend fun deleteAdvance(record: AdvanceRecordEntity)
+
+    @Query("DELETE FROM advance_records WHERE transactionId = :transactionId")
+    suspend fun deleteAdvancesOf(transactionId: Long)
+
+    @Query("DELETE FROM advance_records")
+    suspend fun clearAdvances()
 
     @Delete
     suspend fun deleteAttachment(attachment: AttachmentEntity)

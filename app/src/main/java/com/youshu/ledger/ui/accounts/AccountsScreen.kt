@@ -35,6 +35,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -53,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -77,6 +79,8 @@ import com.youshu.ledger.ui.common.AccountIcon
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.DayPickerDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
+import com.youshu.ledger.ui.common.MoneyInputDialog
+import com.youshu.ledger.ui.common.moneyTextToFen
 import com.youshu.ledger.ui.common.normalizeIconText
 import com.youshu.ledger.ui.theme.expense
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -221,12 +225,11 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
     // 有未保存草稿（如进程被杀后重建）时直接恢复新建对话框
     var showCreate by remember { mutableStateOf(vm.createDraftOrNull() != null) }
     var pendingDelete by remember { mutableStateOf<AccountEntity?>(null) }
-    // 余额截至时间选择
-    var showAsOfDatePicker by remember { mutableStateOf(false) }
+    // 余额截至时间选择（日期时间一体）
     var showAsOfTimePicker by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { LedgerTopBar(title = "账户 · ${state.bookName}") },
+        topBar = { LedgerTopBar(title = "账户") },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreate = true }) {
                 Icon(Icons.Default.Add, contentDescription = "新建账户")
@@ -239,7 +242,11 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
                 .padding(padding)
                 .fillMaxSize(),
         ) {
-            // 截至时间选择：各账户余额与合计均按所选时刻计算（默认当前时间）
+            // 账本切换栏：顶部切换当前账本
+            item(key = "book_bar") {
+                com.youshu.ledger.ui.common.BookSwitcherBar(container)
+            }
+            // 截至时间选择：各账户余额与合计均按所选时刻计算（默认当前时间；日期时间一体选择）
             item(key = "as_of") {
                 Row(
                     modifier = Modifier
@@ -256,10 +263,11 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = if (state.asOfMillis == null) MaterialTheme.colorScheme.outline
                         else MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
-                    Spacer(modifier = Modifier.weight(1f))
-                    TextButton(onClick = { showAsOfDatePicker = true }) { Text("选日期") }
-                    TextButton(onClick = { showAsOfTimePicker = true }) { Text("选时间") }
+                    TextButton(onClick = { showAsOfTimePicker = true }) { Text("选择时间") }
                     if (state.asOfMillis != null) {
                         TextButton(onClick = { vm.setAsOf(null) }) { Text("回到现在") }
                     }
@@ -337,38 +345,15 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
         }
     }
 
-    if (showAsOfDatePicker) {
-        DayPickerDialog(
-            initialMillis = state.effectiveAsOf,
-            onConfirm = { day ->
-                // 保留当前时刻的时分，替换为所选日期
-                val minuteOfDay =
-                    ((state.effectiveAsOf - state.effectiveAsOf.toLocalDate().toEpochMillis()) / 60_000L).toInt()
-                vm.setAsOf(day + minuteOfDay * 60_000L)
-                showAsOfDatePicker = false
-            },
-            onDismiss = { showAsOfDatePicker = false },
-        )
-    }
-
     if (showAsOfTimePicker) {
-        val timePickerState = rememberTimePickerState(
-            initialHour = ((state.effectiveAsOf - state.effectiveAsOf.toLocalDate().toEpochMillis()) / 3_600_000L).toInt(),
-            initialMinute = (((state.effectiveAsOf - state.effectiveAsOf.toLocalDate().toEpochMillis()) % 3_600_000L) / 60_000L).toInt(),
-        )
-        AlertDialog(
-            onDismissRequest = { showAsOfTimePicker = false },
-            title = { Text("余额截至时间") },
-            text = { TimePicker(state = timePickerState) },
-            confirmButton = {
-                TextButton(onClick = {
-                    // 保留当前所选日期，替换时分
-                    val dayStart = state.effectiveAsOf.toLocalDate().toEpochMillis()
-                    vm.setAsOf(dayStart + (timePickerState.hour * 60 + timePickerState.minute) * 60_000L)
-                    showAsOfTimePicker = false
-                }) { Text("确定") }
+        com.youshu.ledger.ui.common.DateTimePickerDialog(
+            initialMillis = state.effectiveAsOf,
+            title = "余额截至时间",
+            onConfirm = { millis ->
+                vm.setAsOf(millis)
+                showAsOfTimePicker = false
             },
-            dismissButton = { TextButton(onClick = { showAsOfTimePicker = false }) { Text("取消") } },
+            onDismiss = { showAsOfTimePicker = false },
         )
     }
 
@@ -511,6 +496,7 @@ private fun AccountEditDialog(
     }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showBalanceDialog by remember { mutableStateOf(false) }
 
     /** 新建模式下把当前输入写入草稿 */
     fun persistDraft() {
@@ -543,13 +529,13 @@ private fun AccountEditDialog(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                OutlinedTextField(
-                    value = balanceText,
-                    onValueChange = { balanceText = it; persistDraft() },
-                    label = { Text("期初余额（元，可为负）") },
-                    singleLine = true,
+                // 期初余额：走统一金额对话框（带校验）
+                OutlinedButton(
+                    onClick = { showBalanceDialog = true },
                     modifier = Modifier.fillMaxWidth(),
-                )
+                ) {
+                    Text("期初余额：${balanceText.ifBlank { "0" }} 元（点击设置，可为负）")
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { showDatePicker = true }) {
                         Text("启用日期：${enableDate.formatDay()}")
@@ -589,6 +575,21 @@ private fun AccountEditDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+
+    if (showBalanceDialog) {
+        MoneyInputDialog(
+            title = "期初余额",
+            initialFen = moneyTextToFen(balanceText, allowNegative = true) ?: 0L,
+            allowNegative = true,
+            allowEmpty = true,
+            onConfirm = { fen ->
+                balanceText = if (fen % 100 == 0L) "${fen / 100}" else "%.2f".format(fen / 100.0)
+                persistDraft()
+                showBalanceDialog = false
+            },
+            onDismiss = { showBalanceDialog = false },
+        )
+    }
 
     if (showDatePicker) {
         DayPickerDialog(

@@ -67,14 +67,21 @@ object BalanceCalculator {
         var balance = account.initialBalance
         for (item in details) {
             val t = item.transaction
+            // 涉及 = 转出/转入账户为本账户，或存在指定到账本账户的退款/报销记录
             val involves =
-                t.accountId == account.id || t.toAccountId == account.id
+                t.accountId == account.id || t.toAccountId == account.id ||
+                    item.refunds.any { it.accountId == account.id } ||
+                    item.reimbursements.any { it.accountId == account.id }
             if (!involves) continue
 
             // 1) 退款 / 报销到账：发生即计入余额（不记为收入流水），含补录流水上的记录；
-            //    二者有独立发生时间（createdAt），仅统计截至 asOf 的部分
-            balance += item.refunds.filter { it.createdAt <= asOfMillis }.sumOf { it.amount }
-            balance += item.reimbursements.filter { it.createdAt <= asOfMillis }.sumOf { it.amount }
+            //    计入各自的「到账账户」，仅统计发生时间（timeMillis）截至 asOf 的部分
+            balance += item.refunds
+                .filter { it.accountId == account.id && it.timeMillis <= asOfMillis }
+                .sumOf { it.amount }
+            balance += item.reimbursements
+                .filter { it.accountId == account.id && it.timeMillis <= asOfMillis }
+                .sumOf { it.amount }
             // 收回代付无独立时间戳，随流水生效时刻一并截止；只发生在支出账户（资金原路回到代付方）
             if (t.accountId == account.id && t.effectiveTimeMillis() <= asOfMillis) {
                 balance += t.recoveredAmount

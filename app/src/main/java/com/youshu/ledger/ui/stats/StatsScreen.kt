@@ -46,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.domain.stats.PeriodType
 import com.youshu.ledger.domain.util.toYuan
+import com.youshu.ledger.ui.common.BookSwitcherBar
 import com.youshu.ledger.ui.common.LedgerTopBar
 import com.youshu.ledger.ui.theme.expense
 import com.youshu.ledger.ui.theme.income
@@ -62,7 +63,7 @@ fun StatsScreen(container: AppContainer) {
     var showBudgetDialog by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { LedgerTopBar(title = "统计 · ${s.bookName}") },
+        topBar = { LedgerTopBar(title = "统计") },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -71,6 +72,12 @@ fun StatsScreen(container: AppContainer) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
+            // 账本切换
+            BookSwitcherBar(
+                container = container,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+
             // ---- 周期切换 ----
             SingleChoiceSegmentedButtonRow(modifier = Modifier
                 .fillMaxWidth()

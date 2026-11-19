@@ -36,6 +36,8 @@ data class TxnDisplay(
     /** 当天分钟数（0~1439），-1 = 未记录（旧数据不显示时间） */
     val timeOfDay: Int = -1,
     val note: String,
+    /** 项目名称（可空） */
+    val project: String = "",
     val category: CategoryEntity?,
     val accountName: String,
     val toAccountName: String?,
@@ -119,6 +121,7 @@ fun TxnRow(item: TxnDisplay, onClick: () -> Unit) {
                 if (item.timeOfDay >= 0) append(formatMinuteOfDay(item.timeOfDay) + " · ")
                 if (item.type == TxnType.TRANSFER) append("转账")
                 else append(item.accountName)
+                if (item.project.isNotBlank()) append(" · ${item.project}")
                 if (item.note.isNotBlank()) append(" · ${item.note}")
                 if (item.backfill) append(" · 补录")
                 if (item.refundSum > 0) append(" · 退${item.refundSum.toYuan()}")

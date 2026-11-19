@@ -49,15 +49,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.TxnType
-import com.youshu.ledger.domain.util.formatDay
-import com.youshu.ledger.domain.util.toYuan
+import com.youshu.ledger.domain.util.formatTime
 import com.youshu.ledger.domain.util.weekDayCn
+import com.youshu.ledger.ui.common.BookSwitcherBar
 import com.youshu.ledger.ui.common.CategoryBadge
+import com.youshu.ledger.ui.common.DateTimePickerDialog
 import com.youshu.ledger.ui.common.DayHeader
 import com.youshu.ledger.ui.common.TxnDisplay
 import com.youshu.ledger.ui.common.TxnRow
 import com.youshu.ledger.ui.common.ConfirmDialog
-import com.youshu.ledger.ui.common.DayPickerDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
 import com.youshu.ledger.ui.common.MoneyText
 import com.youshu.ledger.ui.theme.expense
@@ -86,7 +86,7 @@ fun TxnsScreen(
     Scaffold(
         topBar = {
             LedgerTopBar(
-                title = "流水 · ${state.bookName}",
+                title = "流水",
                 actions = {
                     IconButton(onClick = { showFilters = !showFilters }) {
                         Icon(Icons.Default.Search, contentDescription = "筛选")
@@ -97,6 +97,11 @@ fun TxnsScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            // 账本切换
+            BookSwitcherBar(
+                container = container,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
             // 汇总条
             Row(
                 modifier = Modifier
@@ -255,20 +260,39 @@ private fun FilterBar(
                     }
                 }
             }
-            // 日期区间
+            // 时间区间（起始/截止各自精确到分钟）
             var dateTarget by remember { mutableStateOf<String?>(null) }
             FilterChip(
-                selected = f.startDate != null || f.endDate != null,
+                selected = f.startDate != null,
                 onClick = { dateTarget = "start" },
-                label = { Text("日期") },
+                label = {
+                    Text(
+                        "起始 " + (f.startDate?.formatTime() ?: "不限"),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+            )
+            FilterChip(
+                selected = f.endDate != null,
+                onClick = { dateTarget = "end" },
+                label = {
+                    Text(
+                        "截止 " + (f.endDate?.formatTime() ?: "不限"),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
             )
             if (f.active) {
                 TextButton(onClick = { onFilters(TxnFilters()); onClose() }) { Text("清除筛选") }
             }
             if (dateTarget != null) {
-                DayPickerDialog(
+                DateTimePickerDialog(
                     initialMillis = (if (dateTarget == "start") f.startDate else f.endDate) ?: System.currentTimeMillis(),
+                    title = if (dateTarget == "start") "起始时间" else "截止时间",
                     onConfirm = { millis ->
                         onFilters(if (dateTarget == "start") f.copy(startDate = millis) else f.copy(endDate = millis))
                         dateTarget = null

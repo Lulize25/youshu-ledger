@@ -13,6 +13,7 @@ import com.youshu.ledger.data.local.dao.BudgetDao
 import com.youshu.ledger.data.local.dao.CategoryDao
 import com.youshu.ledger.data.local.dao.TransactionDao
 import com.youshu.ledger.data.local.entity.AccountEntity
+import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.BudgetEntity
@@ -30,7 +31,50 @@ import com.youshu.ledger.data.local.entity.TransactionEntity
  * - v3 → v4：accounts 新增 enableTimeOfDay（启用当天分钟数，-1 = 未设置），
  *   补录判断精确到分钟：启用当天早于该时刻的流水判为补录，旧账户默认 -1（行为不变）。
  * - v4 → v5：accounts.iconKey 语义变更——预置图标 key 转换为用户自定义图标文字（1~2 字）。
+ * - v5 → v6：退款/报销记录增加「账户 + 发生时间」（旧数据迁移为流水账户 / 录入时间）；
+ *   流水增加「项目名称」；新增代付人明细表 advance_records，
+ *   旧 advanceAmount > 0 的流水迁移为一条代付记录（总额缓存列保留）。
  */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 退款：补账户（默认该笔流水的账户）与时间（默认录入时间）
+        db.execSQL("ALTER TABLE `refund_records` ADD COLUMN `accountId` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE `refund_records` SET `accountId` = " +
+                "(SELECT `accountId` FROM `transactions` WHERE `transactions`.`id` = `refund_records`.`transactionId`) " +
+                "WHERE `accountId` = 0",
+        )
+        db.execSQL("ALTER TABLE `refund_records` ADD COLUMN `timeMillis` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE `refund_records` SET `timeMillis` = `createdAt` WHERE `timeMillis` = 0")
+        // 报销：同上
+        db.execSQL("ALTER TABLE `reimburse_records` ADD COLUMN `accountId` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE `reimburse_records` SET `accountId` = " +
+                "(SELECT `accountId` FROM `transactions` WHERE `transactions`.`id` = `reimburse_records`.`transactionId`) " +
+                "WHERE `accountId` = 0",
+        )
+        db.execSQL("ALTER TABLE `reimburse_records` ADD COLUMN `timeMillis` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE `reimburse_records` SET `timeMillis` = `createdAt` WHERE `timeMillis` = 0")
+        // 流水：项目名称
+        db.execSQL("ALTER TABLE `transactions` ADD COLUMN `project` TEXT NOT NULL DEFAULT ''")
+        // 代付人明细表
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `advance_records` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`transactionId` INTEGER NOT NULL, `person` TEXT NOT NULL, " +
+                "`amount` INTEGER, `accountId` INTEGER, `timeMillis` INTEGER, `note` TEXT NOT NULL, " +
+                "FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_advance_records_transactionId` ON `advance_records` (`transactionId`)")
+        // 旧代付总额 → 一条代付记录
+        db.execSQL(
+            "INSERT INTO `advance_records` (`transactionId`, `person`, `amount`, `accountId`, `timeMillis`, `note`) " +
+                "SELECT `id`, '代付', `advanceAmount`, `accountId`, `createdAt`, '' FROM `transactions` " +
+                "WHERE `advanceAmount` > 0",
+        )
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -99,10 +143,11 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         TransactionEntity::class,
         RefundRecordEntity::class,
         ReimburseRecordEntity::class,
+        AdvanceRecordEntity::class,
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -126,7 +171,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     "ledger.db",
                 )
                     // 只走显式迁移：宁可升级失败报错，也绝不静默清空用户记账数据
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }

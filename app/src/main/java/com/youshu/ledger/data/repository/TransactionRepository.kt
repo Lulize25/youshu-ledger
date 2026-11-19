@@ -1,6 +1,7 @@
 package com.youshu.ledger.data.repository
 
 import com.youshu.ledger.data.local.dao.TransactionDao
+import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
@@ -77,12 +78,20 @@ class TransactionRepository(
         settings.bumpDataVersion()
     }
 
-    /** 追加一条退款记录（可部分退款、可多次） */
-    suspend fun addRefund(transactionId: Long, amount: Long, note: String) {
+    /** 追加一条退款记录（可部分退款、可多次）；退款计入 refundAccountId 账户余额 */
+    suspend fun addRefund(
+        transactionId: Long,
+        amount: Long,
+        refundAccountId: Long,
+        timeMillis: Long,
+        note: String,
+    ) {
         dao.upsertRefund(
             RefundRecordEntity(
                 transactionId = transactionId,
                 amount = amount,
+                accountId = refundAccountId,
+                timeMillis = timeMillis,
                 note = note,
                 createdAt = System.currentTimeMillis(),
             ),
@@ -91,11 +100,19 @@ class TransactionRepository(
     }
 
     /** 追加一条报销记录（规则与退款一致） */
-    suspend fun addReimburse(transactionId: Long, amount: Long, note: String) {
+    suspend fun addReimburse(
+        transactionId: Long,
+        amount: Long,
+        reimburseAccountId: Long,
+        timeMillis: Long,
+        note: String,
+    ) {
         dao.upsertReimburse(
             ReimburseRecordEntity(
                 transactionId = transactionId,
                 amount = amount,
+                accountId = reimburseAccountId,
+                timeMillis = timeMillis,
                 note = note,
                 createdAt = System.currentTimeMillis(),
             ),
@@ -112,6 +129,38 @@ class TransactionRepository(
     suspend fun deleteReimburse(record: ReimburseRecordEntity) {
         dao.deleteReimburse(record)
         settings.bumpDataVersion()
+    }
+
+    // ---------- 代付人明细 ----------
+
+    /** 添加一条代付记录（谁 必填），并同步流水的 advanceAmount 总额缓存 */
+    suspend fun addAdvance(record: AdvanceRecordEntity) {
+        require(record.person.isNotBlank()) { "请填写代付对象（谁）" }
+        dao.upsertAdvance(record)
+        syncAdvanceTotal(record.transactionId)
+        settings.bumpDataVersion()
+    }
+
+    /** 更新代付记录（谁 必填），并同步 advanceAmount 总额缓存 */
+    suspend fun updateAdvance(record: AdvanceRecordEntity) {
+        require(record.person.isNotBlank()) { "请填写代付对象（谁）" }
+        dao.upsertAdvance(record)
+        syncAdvanceTotal(record.transactionId)
+        settings.bumpDataVersion()
+    }
+
+    /** 删除代付记录并同步 advanceAmount */
+    suspend fun deleteAdvance(record: AdvanceRecordEntity) {
+        dao.deleteAdvance(record)
+        syncAdvanceTotal(record.transactionId)
+        settings.bumpDataVersion()
+    }
+
+    /** advanceAmount = Σ 代付记录金额（null 视为 0），供统计与收回上限使用 */
+    private suspend fun syncAdvanceTotal(transactionId: Long) {
+        val detail = dao.getWithDetails(transactionId) ?: return
+        val total = detail.advances.sumOf { it.amount ?: 0L }
+        dao.update(detail.transaction.copy(advanceAmount = total))
     }
 
     /**

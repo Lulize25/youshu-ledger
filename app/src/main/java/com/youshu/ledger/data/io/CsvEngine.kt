@@ -290,9 +290,9 @@ object CsvEngine {
                 )
                 // 退款/报销合计作为一条汇总记录导入（与原支出同账户）
                 col(Field.REFUND)?.replace(",", "")?.toDoubleOrNull()?.let { if (it > 0) (it * 100).toLong() else null }
-                    ?.let { txnDao.upsertRefund(com.youshu.ledger.data.local.entity.RefundRecordEntity(0, txnId, it, "CSV 导入", System.currentTimeMillis())) }
+                    ?.let { txnDao.upsertRefund(com.youshu.ledger.data.local.entity.RefundRecordEntity(0, txnId, it, account.id, createdAt, "CSV 导入", System.currentTimeMillis())) }
                 col(Field.REIMBURSE)?.replace(",", "")?.toDoubleOrNull()?.let { if (it > 0) (it * 100).toLong() else null }
-                    ?.let { txnDao.upsertReimburse(com.youshu.ledger.data.local.entity.ReimburseRecordEntity(0, txnId, it, "CSV 导入", System.currentTimeMillis())) }
+                    ?.let { txnDao.upsertReimburse(com.youshu.ledger.data.local.entity.ReimburseRecordEntity(0, txnId, it, account.id, createdAt, "CSV 导入", System.currentTimeMillis())) }
                 success++
             }.onFailure { e ->
                 failed++

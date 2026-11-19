@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.AccountEntity
+import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
@@ -41,15 +42,16 @@ data class RecordUiState(
     val businessDate: Long = todayMillis(),
     /** 当天分钟数（0~1439），-1 = 未记录时间 */
     val timeOfDay: Int = -1,
+    val project: String = "",
     val note: String = "",
     val categoryId: Long? = null,
     val accountId: Long? = null,
     val toAccountId: Long? = null,
     val feeFen: Long = 0,
-    val advanceFen: Long = 0,
     val recoveredFen: Long = 0,
     val refunds: List<RefundRecordEntity> = emptyList(),
     val reimbursements: List<ReimburseRecordEntity> = emptyList(),
+    val advances: List<AdvanceRecordEntity> = emptyList(),
     val attachments: List<AttachmentEntity> = emptyList(),
     val accounts: List<AccountEntity> = emptyList(),
     val categories: List<CategoryEntity> = emptyList(),
@@ -73,9 +75,24 @@ data class RecordUiState(
                 .map { root -> root to ofType.filter { it.parentId == root.id } }
         }
 
+    /** 按关键字过滤分类树（搜索用）：命中根或子分类即保留 */
+    fun filteredCategoryTree(keyword: String): List<Pair<CategoryEntity, List<CategoryEntity>>> {
+        val kw = keyword.trim()
+        if (kw.isEmpty()) return categoryTree
+        return categoryTree.mapNotNull { (root, children) ->
+            val matchedChildren = children.filter { it.name.contains(kw, ignoreCase = true) }
+            when {
+                root.name.contains(kw, ignoreCase = true) -> root to children
+                matchedChildren.isNotEmpty() -> root to matchedChildren
+                else -> null
+            }
+        }
+    }
+
     val refundSum: Long get() = refunds.sumOf { it.amount }
     val reimburseSum: Long get() = reimbursements.sumOf { it.amount }
-    val receivable: Long get() = (advanceFen - recoveredFen).coerceAtLeast(0)
+    val advanceTotal: Long get() = advances.sumOf { it.amount ?: 0L }
+    val receivable: Long get() = (advanceTotal - recoveredFen).coerceAtLeast(0)
 
     fun validate(amountFen: Long?): String? = when {
         amountFen == null || amountFen == 0L -> "请输入金额"
@@ -84,8 +101,6 @@ data class RecordUiState(
         type == TxnType.TRANSFER && accountId == toAccountId -> "转出与转入账户不能相同"
         type != TxnType.TRANSFER && accountId == null -> "请选择账户"
         type != TxnType.TRANSFER && categoryId == null -> "请选择分类"
-        type == TxnType.EXPENSE && advanceFen < 0 -> "代付金额不能为负"
-        type == TxnType.EXPENSE && advanceFen > (amountFen ?: 0) -> "代付金额不能超过支出金额"
         else -> null
     }
 }
@@ -99,6 +114,7 @@ data class RecordDraft(
     val type: String = "EXPENSE",
     val businessDate: Long = 0,
     val timeOfDay: Int = -1,
+    val project: String = "",
     val note: String = "",
     val categoryId: Long? = null,
     val accountId: Long? = null,
@@ -174,15 +190,16 @@ class RecordViewModel(
                         type = detail.transaction.type,
                         businessDate = detail.transaction.businessDate,
                         timeOfDay = detail.transaction.timeOfDay,
+                        project = detail.transaction.project,
                         note = detail.transaction.note,
                         categoryId = detail.transaction.categoryId,
                         accountId = detail.transaction.accountId,
                         toAccountId = detail.transaction.toAccountId,
                         feeFen = detail.transaction.fee,
-                        advanceFen = detail.transaction.advanceAmount,
                         recoveredFen = detail.transaction.recoveredAmount,
                         refunds = detail.refunds,
                         reimbursements = detail.reimbursements,
+                        advances = detail.advances,
                         attachments = detail.attachments,
                     )
                 }
@@ -195,6 +212,7 @@ class RecordViewModel(
                     type = restoredType,
                     businessDate = if (draft.businessDate > 0) draft.businessDate else todayMillis(),
                     timeOfDay = if (draft.timeOfDay >= 0) draft.timeOfDay else currentMinuteOfDay(),
+                    project = draft.project,
                     note = draft.note,
                     categoryId = draft.categoryId
                         ?.takeIf { id -> categories.any { it.id == id } },
@@ -204,7 +222,6 @@ class RecordViewModel(
                     toAccountId = draft.toAccountId
                         ?.takeIf { id -> accounts.any { it.id == id } },
                     feeFen = draft.feeFen,
-                    advanceFen = draft.advanceFen,
                 )
                 draft.amountText.forEach { amountInput.append(it) }
             } else {
@@ -225,12 +242,12 @@ class RecordViewModel(
                 type = s.type.name,
                 businessDate = s.businessDate,
                 timeOfDay = s.timeOfDay,
+                project = s.project,
                 note = s.note,
                 categoryId = s.categoryId,
                 accountId = s.accountId,
                 toAccountId = s.toAccountId,
                 feeFen = s.feeFen,
-                advanceFen = s.advanceFen,
                 amountText = amountInput.text,
             ),
         )
@@ -252,6 +269,38 @@ class RecordViewModel(
         persistDraft()
     }
 
+    /** 在记一笔页直接新增分类（根或某根分类下的子分类），创建后自动选中 */
+    fun createCategory(name: String, parentId: Long?, type: CategoryType, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            if (name.isBlank()) {
+                onResult("请输入分类名称")
+                return@launch
+            }
+            val bookId = _ui.value.bookId
+            val all = categoryRepo.getByBook(bookId)
+            val ofType = all.filter { it.type == type }
+            val sortOrder = (ofType.maxOfOrNull { it.sortOrder } ?: -1) + 1
+            val trimmed = name.trim()
+            val id = categoryRepo.upsert(
+                CategoryEntity(
+                    bookId = bookId,
+                    type = type,
+                    parentId = parentId?.takeIf { pid -> ofType.any { it.id == pid } },
+                    name = trimmed,
+                    sortOrder = sortOrder,
+                    color = com.youshu.ledger.ui.common.accountIconColor(trimmed),
+                    iconText = trimmed.take(2),
+                ),
+            )
+            _ui.value = _ui.value.copy(
+                categories = categoryRepo.getByBook(bookId),
+                categoryId = id,
+            )
+            persistDraft()
+            onResult(null)
+        }
+    }
+
     /** 保存（新建或更新）。返回错误信息，null 表示成功。 */
     suspend fun save(): String? {
         val s = _ui.value
@@ -269,11 +318,12 @@ class RecordViewModel(
             timeOfDay = s.timeOfDay,
             createdAt = base?.createdAt ?: now,
             note = s.note.trim(),
+            project = s.project.trim(),
             categoryId = if (s.type == TxnType.TRANSFER) null else s.categoryId,
             accountId = s.accountId ?: return "请选择账户",
             toAccountId = if (s.type == TxnType.TRANSFER) s.toAccountId else null,
             fee = if (s.type == TxnType.TRANSFER) s.feeFen else 0,
-            advanceAmount = if (s.type == TxnType.EXPENSE) s.advanceFen else 0,
+            advanceAmount = if (s.type == TxnType.EXPENSE) s.advanceTotal else 0,
             recoveredAmount = base?.recoveredAmount ?: 0,
         )
         _ui.value = s.copy(saving = true)
@@ -303,21 +353,80 @@ class RecordViewModel(
         return if (save() == null) _ui.value.editingId else null
     }
 
-    fun addRefund(amount: Long, note: String, onResult: (String?) -> Unit) {
+    fun addRefund(
+        amount: Long,
+        refundAccountId: Long,
+        timeMillis: Long,
+        note: String,
+        onResult: (String?) -> Unit,
+    ) {
         viewModelScope.launch {
             val id = ensureSaved() ?: run { onResult("请先完成必填项并保存"); return@launch }
-            txnRepo.addRefund(id, amount, note)
+            txnRepo.addRefund(id, amount, refundAccountId, timeMillis, note)
             reloadDetails()
             onResult(null)
         }
     }
 
-    fun addReimburse(amount: Long, note: String, onResult: (String?) -> Unit) {
+    fun addReimburse(
+        amount: Long,
+        reimburseAccountId: Long,
+        timeMillis: Long,
+        note: String,
+        onResult: (String?) -> Unit,
+    ) {
         viewModelScope.launch {
             val id = ensureSaved() ?: run { onResult("请先完成必填项并保存"); return@launch }
-            txnRepo.addReimburse(id, amount, note)
+            txnRepo.addReimburse(id, amount, reimburseAccountId, timeMillis, note)
             reloadDetails()
             onResult(null)
+        }
+    }
+
+    /** 添加代付人（谁 必填；金额/时间/账户/备注可选） */
+    fun addAdvance(
+        person: String,
+        amount: Long?,
+        accountId: Long?,
+        timeMillis: Long?,
+        note: String,
+        onResult: (String?) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val id = ensureSaved() ?: run { onResult("请先完成必填项并保存"); return@launch }
+            if (person.isBlank()) {
+                onResult("请填写代付对象（谁）")
+                return@launch
+            }
+            runCatching {
+                txnRepo.addAdvance(
+                    AdvanceRecordEntity(
+                        transactionId = id,
+                        person = person.trim(),
+                        amount = amount,
+                        accountId = accountId,
+                        timeMillis = timeMillis,
+                        note = note.trim(),
+                    ),
+                )
+            }.onSuccess { reloadDetails(); onResult(null) }
+                .onFailure { onResult(it.message) }
+        }
+    }
+
+    /** 更新代付记录（编辑已保存流水时行内修改） */
+    fun updateAdvance(record: AdvanceRecordEntity, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            runCatching { txnRepo.updateAdvance(record) }
+                .onSuccess { reloadDetails(); onResult(null) }
+                .onFailure { onResult(it.message) }
+        }
+    }
+
+    fun deleteAdvance(record: AdvanceRecordEntity) {
+        viewModelScope.launch {
+            txnRepo.deleteAdvance(record)
+            reloadDetails()
         }
     }
 
@@ -412,8 +521,8 @@ class RecordViewModel(
             _ui.value = _ui.value.copy(
                 refunds = detail.refunds,
                 reimbursements = detail.reimbursements,
+                advances = detail.advances,
                 attachments = detail.attachments,
-                advanceFen = detail.transaction.advanceAmount,
                 recoveredFen = detail.transaction.recoveredAmount,
             )
         }

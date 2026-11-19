@@ -28,8 +28,9 @@ class CsvEngineTest {
             categoryId = 5, accountId = 2, toAccountId = null,
             advanceAmount = 30_00, recoveredAmount = 10_00,
         ),
-        refunds = listOf(RefundRecordEntity(1, 1, 20_00, "", day)),
-        reimbursements = listOf(ReimburseRecordEntity(1, 1, 10_00, "", day)),
+        refunds = listOf(RefundRecordEntity(1, 1, 20_00, accountId = 2, timeMillis = day, note = "", createdAt = day)),
+        reimbursements = listOf(ReimburseRecordEntity(1, 1, 10_00, accountId = 2, timeMillis = day, note = "", createdAt = day)),
+        advances = emptyList(),
         attachments = listOf(AttachmentEntity(1, 1, "attachments/1/a.jpg")),
     )
 

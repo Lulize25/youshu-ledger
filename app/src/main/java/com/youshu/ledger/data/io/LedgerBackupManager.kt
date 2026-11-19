@@ -81,6 +81,7 @@ class LedgerBackupManager(
 
             // 1) 清空现有数据
             txnDao.clearAll()
+            txnDao.clearAdvances()
             budgetDao.clearAll()
             categoryDao.clearAll()
             accountDao.clearAll()
@@ -106,13 +107,14 @@ class LedgerBackupManager(
                         type = com.youshu.ledger.data.local.entity.TxnType.valueOf(t.type),
                         amount = t.amount, businessDate = t.businessDate, createdAt = t.createdAt,
                         note = t.note, categoryId = t.categoryId, accountId = t.accountId,
-                        toAccountId = t.toAccountId, fee = t.fee,
+                        toAccountId = t.toAccountId, fee = t.fee, project = t.project,
                         advanceAmount = t.advanceAmount, recoveredAmount = t.recoveredAmount,
                         timeOfDay = t.timeOfDay,
                     ),
                 )
-                t.refunds.forEach { txnDao.upsertRefund(it.toEntity(t.id)) }
-                t.reimbursements.forEach { txnDao.upsertReimburse(it.toEntity(t.id)) }
+                t.refunds.forEach { txnDao.upsertRefund(it.toEntity(t.id, t.accountId)) }
+                t.reimbursements.forEach { txnDao.upsertReimburse(it.toEntity(t.id, t.accountId)) }
+                t.advances.forEach { txnDao.upsertAdvance(it.toEntity(t.id)) }
                 t.attachments.forEach { rel ->
                     txnDao.upsertAttachment(AttachmentEntity(transactionId = t.id, relativePath = remapAttachmentPath(rel)))
                 }

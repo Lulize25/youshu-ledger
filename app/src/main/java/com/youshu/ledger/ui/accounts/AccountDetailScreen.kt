@@ -100,6 +100,7 @@ class AccountDetailViewModel(
         businessDate = transaction.businessDate,
         timeOfDay = transaction.timeOfDay,
         note = transaction.note,
+        project = transaction.project,
         category = transaction.categoryId?.let { catById[it] },
         accountName = "",
         toAccountName = null,

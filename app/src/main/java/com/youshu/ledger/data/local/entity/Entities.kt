@@ -109,11 +109,15 @@ data class TransactionEntity(
     val accountId: Long,     // 支出/收入的账户；转账的转出账户
     val toAccountId: Long?,  // 仅转账：转入账户
     val fee: Long = 0,       // 仅转账：手续费（分），从转出账户扣除
-    val advanceAmount: Long = 0,    // 仅支出：代付金额（分）
+    val project: String = "",     // 项目名称（可选，标记用途/项目维度）
+    val advanceAmount: Long = 0,    // 仅支出：代付金额合计（分，= 代付记录之和，由仓库维护）
     val recoveredAmount: Long = 0,  // 仅支出：已收回金额（分）
 )
 
-/** 退款记录：每条含金额、备注、录入时间；可部分退款、可多次 */
+/**
+ * 退款记录：可部分退款、可多次。
+ * 金额 / 退款账户 / 退款时间 必填，备注可选；退款计入「退款账户」的余额。
+ */
 @Entity(
     tableName = "refund_records",
     foreignKeys = [ForeignKey(
@@ -128,11 +132,13 @@ data class RefundRecordEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val transactionId: Long,
     val amount: Long,
+    val accountId: Long,   // 退款到账账户（v1.5.0 起；旧数据迁移为流水账户）
+    val timeMillis: Long,   // 退款发生时间（v1.5.0 起；旧数据迁移为录入时间）
     val note: String,
     val createdAt: Long,
 )
 
-/** 报销记录：规则与退款一致 */
+/** 报销记录：字段规则与退款一致 */
 @Entity(
     tableName = "reimburse_records",
     foreignKeys = [ForeignKey(
@@ -147,8 +153,35 @@ data class ReimburseRecordEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val transactionId: Long,
     val amount: Long,
+    val accountId: Long,
+    val timeMillis: Long,
     val note: String,
     val createdAt: Long,
+)
+
+/**
+ * 代付记录：这笔支出替谁付了多少钱（一人一条，可多人）。
+ * 仅「谁」必填；金额 / 时间 / 账户 / 备注均可选补充。
+ * 不改变余额（资金已随支出流出）；收回登记仍在流水上按总额进行。
+ */
+@Entity(
+    tableName = "advance_records",
+    foreignKeys = [ForeignKey(
+        entity = TransactionEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["transactionId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [Index("transactionId")],
+)
+data class AdvanceRecordEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val transactionId: Long,
+    val person: String,       // 代付对象（谁）——必填
+    val amount: Long?,      // 代付金额（分，可选）
+    val accountId: Long?,   // 关联账户（可选）
+    val timeMillis: Long?,  // 发生时间（可选）
+    val note: String,
 )
 
 /** 附件：图片保存在 filesDir/attachments/，此处记录相对路径 */
@@ -190,7 +223,7 @@ data class BudgetEntity(
     val amount: Long,        // 预算金额（分）
 )
 
-/** 流水及其子表（退款/报销/附件）的一次性查询结果 */
+/** 流水及其子表（退款/报销/代付/附件）的一次性查询结果 */
 data class TransactionWithDetails(
     @androidx.room.Embedded val transaction: TransactionEntity,
     @androidx.room.Relation(
@@ -201,6 +234,10 @@ data class TransactionWithDetails(
         parentColumn = "id",
         entityColumn = "transactionId",
     ) val reimbursements: List<ReimburseRecordEntity>,
+    @androidx.room.Relation(
+        parentColumn = "id",
+        entityColumn = "transactionId",
+    ) val advances: List<AdvanceRecordEntity>,
     @androidx.room.Relation(
         parentColumn = "id",
         entityColumn = "transactionId",

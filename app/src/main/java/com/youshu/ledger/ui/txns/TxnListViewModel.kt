@@ -111,6 +111,7 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
             businessDate = transaction.businessDate,
             timeOfDay = transaction.timeOfDay,
             note = transaction.note,
+            project = transaction.project,
             category = transaction.categoryId?.let { catById[it] },
             accountName = account?.name ?: "未知账户",
             toAccountName = transaction.toAccountId?.let { accById[it]?.name },

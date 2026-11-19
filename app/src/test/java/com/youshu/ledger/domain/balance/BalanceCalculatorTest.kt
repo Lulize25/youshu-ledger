@@ -63,7 +63,7 @@ class BalanceCalculatorTest {
         txn: TransactionEntity,
         refunds: List<RefundRecordEntity> = emptyList(),
         reimbursements: List<ReimburseRecordEntity> = emptyList(),
-    ) = TransactionWithDetails(txn, refunds, reimbursements, emptyList<AttachmentEntity>())
+    ) = TransactionWithDetails(txn, refunds, reimbursements, emptyList(), emptyList<AttachmentEntity>())
 
     private fun balance(vararg items: TransactionWithDetails) =
         BalanceCalculator.computeBalance(account, items.toList())
@@ -91,7 +91,7 @@ class BalanceCalculatorTest {
         val refunded = detail(
             expense(1, 100_00),
             refunds = listOf(
-                RefundRecordEntity(id = 1, transactionId = 1, amount = 40_00, note = "", createdAt = today),
+                RefundRecordEntity(id = 1, transactionId = 1, amount = 40_00, accountId = 1, timeMillis = today, note = "", createdAt = today),
             ),
         )
         assertEquals(440_00, balance(refunded))
@@ -143,7 +143,7 @@ class BalanceCalculatorTest {
         val backfillRefunded = detail(
             expense(1, 300_00, date = backfillDate),
             refunds = listOf(
-                RefundRecordEntity(id = 1, transactionId = 1, amount = 50_00, note = "", createdAt = today),
+                RefundRecordEntity(id = 1, transactionId = 1, amount = 50_00, accountId = 1, timeMillis = today, note = "", createdAt = today),
             ),
         )
         assertEquals(550_00, balance(backfillRefunded))
@@ -200,10 +200,38 @@ class BalanceCalculatorTest {
         val refunded = detail(
             expense(1, 100_00, date = today).copy(timeOfDay = 9 * 60),
             refunds = listOf(
-                RefundRecordEntity(id = 1, transactionId = 1, amount = 40_00, note = "", createdAt = today + 15 * 60 * 60_000L),
+                RefundRecordEntity(id = 1, transactionId = 1, amount = 40_00, accountId = 1, timeMillis = today + 15 * 60 * 60_000L, note = "", createdAt = today),
             ),
         )
         // 退款发生在 15:00（asOf 之后）→ 12:00 时点上余额 = 500 - 100 = 400
         assertEquals(400_00, BalanceCalculator.computeBalance(account, listOf(refunded), asOf))
+    }
+
+    /** v1.5.0：退款计入到账账户而非流水账户（微信支出、退到银行卡 → 微信 −100、银行卡 +40） */
+    @Test
+    fun `refund goes to its own account`() {
+        val bank = account.copy(id = 2L, name = "银行卡", initialBalance = 0)
+        val refunded = detail(
+            expense(1, 100_00, accountId = 1),
+            refunds = listOf(
+                RefundRecordEntity(id = 1, transactionId = 1, amount = 40_00, accountId = 2, timeMillis = today, note = "", createdAt = today),
+            ),
+        )
+        assertEquals(400_00, BalanceCalculator.computeBalance(account, listOf(refunded)))
+        assertEquals(40_00, BalanceCalculator.computeBalance(bank, listOf(refunded)))
+    }
+
+    /** v1.5.0：退款/报销的 asOf 判定使用「发生时间」而非录入时间（createdAt） */
+    @Test
+    fun `asOf filters refunds by occurrence time not created time`() {
+        val asOf = today + 12 * 60 * 60_000L
+        // 退款实际发生在 10:00（应计入），但晚于 asOf 才录入（createdAt = 15:00）
+        val refunded = detail(
+            expense(1, 100_00, date = today).copy(timeOfDay = 9 * 60),
+            refunds = listOf(
+                RefundRecordEntity(id = 1, transactionId = 1, amount = 40_00, accountId = 1, timeMillis = today + 10 * 60 * 60_000L, note = "", createdAt = today + 15 * 60 * 60_000L),
+            ),
+        )
+        assertEquals(440_00, BalanceCalculator.computeBalance(account, listOf(refunded), asOf))
     }
 }

@@ -1,6 +1,7 @@
 package com.youshu.ledger.data.io
 
 import com.youshu.ledger.data.local.entity.AccountEntity
+import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.BudgetEntity
@@ -58,16 +59,33 @@ data class TransactionDto(
     val categoryId: Long?, val accountId: Long, val toAccountId: Long?, val fee: Long,
     val advanceAmount: Long, val recoveredAmount: Long,
     val timeOfDay: Int = -1,              // v3 起：当天分钟数；旧备份无此字段，默认 -1
+    val project: String = "",             // v6 起：项目名称；旧备份无此字段
     val refunds: List<RefundDto> = emptyList(),
     val reimbursements: List<ReimburseDto> = emptyList(),
+    val advances: List<AdvanceDto> = emptyList(),   // v6 起：代付人明细
     val attachments: List<String> = emptyList(),
 )
 
 @Serializable
-data class RefundDto(val id: Long, val amount: Long, val note: String, val createdAt: Long)
+data class RefundDto(
+    val id: Long, val amount: Long, val note: String, val createdAt: Long,
+    val accountId: Long? = null,      // v6 起：退款账户；旧备份按流水账户处理
+    val timeMillis: Long? = null,     // v6 起：退款发生时间；旧备份按录入时间处理
+)
 
 @Serializable
-data class ReimburseDto(val id: Long, val amount: Long, val note: String, val createdAt: Long)
+data class ReimburseDto(
+    val id: Long, val amount: Long, val note: String, val createdAt: Long,
+    val accountId: Long? = null,
+    val timeMillis: Long? = null,
+)
+
+@Serializable
+data class AdvanceDto(
+    val id: Long, val person: String,
+    val amount: Long? = null, val accountId: Long? = null,
+    val timeMillis: Long? = null, val note: String = "",
+)
 
 @Serializable
 data class BudgetDto(
@@ -91,11 +109,26 @@ fun AccountDto.toEntity() = AccountEntity(
 fun CategoryEntity.toDto() = CategoryDto(id, bookId, type.name, parentId, name, sortOrder, color, iconText)
 fun CategoryDto.toEntity() = CategoryEntity(id, bookId, CategoryType.valueOf(type), parentId, name, sortOrder, color, iconText)
 
-fun RefundRecordEntity.toDto() = RefundDto(id, amount, note, createdAt)
-fun RefundDto.toEntity(txnId: Long) = RefundRecordEntity(id, txnId, amount, note, createdAt)
+fun RefundRecordEntity.toDto() = RefundDto(id, amount, note, createdAt, accountId, timeMillis)
+fun RefundDto.toEntity(txnId: Long, defaultAccountId: Long) = RefundRecordEntity(
+    id, txnId, amount,
+    accountId = accountId ?: defaultAccountId,
+    timeMillis = timeMillis ?: createdAt,
+    note, createdAt,
+)
 
-fun ReimburseRecordEntity.toDto() = ReimburseDto(id, amount, note, createdAt)
-fun ReimburseDto.toEntity(txnId: Long) = ReimburseRecordEntity(id, txnId, amount, note, createdAt)
+fun ReimburseRecordEntity.toDto() = ReimburseDto(id, amount, note, createdAt, accountId, timeMillis)
+fun ReimburseDto.toEntity(txnId: Long, defaultAccountId: Long) = ReimburseRecordEntity(
+    id, txnId, amount,
+    accountId = accountId ?: defaultAccountId,
+    timeMillis = timeMillis ?: createdAt,
+    note, createdAt,
+)
+
+fun AdvanceRecordEntity.toDto() = AdvanceDto(id, person, amount, accountId, timeMillis, note)
+fun AdvanceDto.toEntity(txnId: Long) = AdvanceRecordEntity(
+    id, txnId, person, amount, accountId, timeMillis, note,
+)
 
 fun BudgetEntity.toDto() = BudgetDto(id, bookId, categoryId, yearMonth, amount)
 fun BudgetDto.toEntity() = BudgetEntity(id, bookId, categoryId, yearMonth, amount)
