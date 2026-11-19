@@ -211,7 +211,7 @@ class AccountsViewModel(
 }
 
 /**
- * 账户页：账户列表（图标、名称、余额，负余额红色）、新建/编辑（期初余额与启用日期）、
+ * 账户页：账户列表（图标、名称、余额，负余额红色）、新建/编辑（期初余额与校准日期），
  * 归档/删除、点入查看单账户流水。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -425,7 +425,7 @@ private fun AccountRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(item.account.name, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${formatEnableDay(item.account.enableDate, item.account.enableTimeOfDay)}启用",
+                    "${formatEnableDay(item.account.enableDate, item.account.enableTimeOfDay)} 校准",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -463,7 +463,7 @@ private fun AccountRow(
     }
 }
 
-/** 新建/编辑账户对话框：名称、图标、期初余额、启用日期与启用时间（精确到分钟）。
+/** 新建/编辑账户对话框：名称、图标、期初余额、校准日期与校准时间（精确到分钟）。
  *  新建模式支持草稿（draft + onDraftChange）：任何修改即持久化，
  *  进程被杀死后重建对话框内容不丢；保存或取消时清除。 */
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -486,7 +486,7 @@ private fun AccountEditDialog(
     var enableDate by remember {
         mutableStateOf(account?.enableDate ?: draft?.enableDate?.takeIf { it > 0 } ?: com.youshu.ledger.domain.util.todayMillis())
     }
-    // 启用时间：-1 = 未设置（当天 00:00 起算）；新建默认当前时刻
+    // 校准时间（该时刻余额 = 期初余额）：-1 = 未设置（当天 00:00 起算，旧数据）；新建默认当前时刻
     var enableTimeOfDay by remember {
         mutableStateOf(
             account?.enableTimeOfDay
@@ -538,18 +538,18 @@ private fun AccountEditDialog(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { showDatePicker = true }) {
-                        Text("启用日期：${enableDate.formatDay()}")
+                        Text("校准日期：${enableDate.formatDay()}")
                     }
                     TextButton(onClick = { showTimePicker = true }) {
                         Text(
-                            "启用时间：${formatMinuteOfDay(enableTimeOfDay).ifEmpty { "未设置" }}",
-                            color = if (enableTimeOfDay >= 0) MaterialTheme.colorScheme.onSurface
-                            else MaterialTheme.colorScheme.outline,
+                            "校准时间：${formatMinuteOfDay(enableTimeOfDay).ifEmpty { "00:00" }}",
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
                 Text(
-                    "余额从启用时刻起算，之前的流水记为补录；不设置时间则从当天 00:00 起算",
+                    "校准时刻的账户余额 = 期初余额（这个时间点的钱数是确定的）；" +
+                        "之前的流水记为补录、不动余额，从此往后累计对齐",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -606,7 +606,7 @@ private fun AccountEditDialog(
         )
         AlertDialog(
             onDismissRequest = { showTimePicker = false },
-            title = { Text("启用时间") },
+            title = { Text("校准时间") },
             text = { TimePicker(state = timePickerState) },
             confirmButton = {
                 TextButton(onClick = {
@@ -616,14 +616,7 @@ private fun AccountEditDialog(
                 }) { Text("确定") }
             },
             dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        enableTimeOfDay = -1
-                        persistDraft()
-                        showTimePicker = false
-                    }) { Text("不设置") }
-                    TextButton(onClick = { showTimePicker = false }) { Text("取消") }
-                }
+                TextButton(onClick = { showTimePicker = false }) { Text("取消") }
             },
         )
     }

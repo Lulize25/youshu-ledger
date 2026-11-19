@@ -160,7 +160,7 @@ fun AccountDetailScreen(
                         )
                         state.account?.let {
                             Text(
-                                "期初 ${it.initialBalance.toYuan()} · 启用 ${formatEnableDay(it.enableDate, it.enableTimeOfDay)}",
+                                "期初 ${it.initialBalance.toYuan()} · 校准 ${formatEnableDay(it.enableDate, it.enableTimeOfDay)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline,
                             )
