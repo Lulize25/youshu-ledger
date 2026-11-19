@@ -119,6 +119,33 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
     }
 }
 
+/**
+ * v7 → v8：categories 表去掉 bookId → books 的外键（v1.5.1 起分类全局共享，bookId 恒为 0）。
+ * 不修的话：新建分类外键校验失败直接崩；删除账本会级联删掉全部分类。
+ * SQLite 不支持删外键，重建表（数据原样保留；parentId 自引用外键保留）。
+ */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `categories_new` (" +
+                "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`bookId` INTEGER NOT NULL, `type` TEXT NOT NULL, `parentId` INTEGER, " +
+                "`name` TEXT NOT NULL, `sortOrder` INTEGER NOT NULL, " +
+                "`color` INTEGER NOT NULL, `iconText` TEXT NOT NULL, " +
+                "FOREIGN KEY(`parentId`) REFERENCES `categories`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL(
+            "INSERT INTO `categories_new` " +
+                "(`id`,`bookId`,`type`,`parentId`,`name`,`sortOrder`,`color`,`iconText`) " +
+                "SELECT `id`,`bookId`,`type`,`parentId`,`name`,`sortOrder`,`color`,`iconText` FROM `categories`",
+        )
+        db.execSQL("DROP TABLE `categories`")
+        db.execSQL("ALTER TABLE `categories_new` RENAME TO `categories`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_categories_parentId` ON `categories` (`parentId`)")
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -191,7 +218,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -217,7 +244,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     // 只走显式迁移：宁可升级失败报错，也绝不静默清空用户记账数据
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
-                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
                     )
                     .build()
                     .also { instance = it }

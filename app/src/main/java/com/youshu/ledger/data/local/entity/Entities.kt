@@ -49,16 +49,11 @@ data class AccountEntity(
     val archived: Boolean,
 )
 
-/** 分类（按账本隔离，树状多级；根分类 parentId = null） */
+/** 分类（v1.5.1 起全局共享，不按账本隔离；树状多级；根分类 parentId = null。
+ *  bookId 列保留但不再建外键——全局分类没有所属账本，删除账本绝不能再级联删除分类。） */
 @Entity(
     tableName = "categories",
     foreignKeys = [
-        ForeignKey(
-            entity = BookEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["bookId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
         ForeignKey(
             entity = CategoryEntity::class,
             parentColumns = ["id"],
@@ -66,7 +61,7 @@ data class AccountEntity(
             onDelete = ForeignKey.CASCADE, // 删除父分类时一并删除子分类
         ),
     ],
-    indices = [Index("bookId"), Index("parentId")],
+    indices = [Index("parentId")],
 )
 data class CategoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
