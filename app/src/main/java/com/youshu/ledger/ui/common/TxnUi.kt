@@ -107,8 +107,10 @@ fun DayHeader(group: DayGroup) {
 }
 
 /**
- * 流水列表行：图标 + 名称 + 金额一行；小字（时间/账户/备注等）在名称和余额**下方整行通栏**显示；
- * [balancesAfter] 非空时提供可收起条：展开显示「经过这一步之后」各涉及账户的余额。
+ * 流水列表行：
+ * 顶上显示具体时间；主行 = 分类图标 + 名称（项目名称优先，其次分类名，转账显示「A → B」）+ 金额；
+ * 小字通栏只显示备注；点箭头展开：分类、涉及账户、退款/报销/附件摘要，
+ * 以及「经过这一步之后」**全部账户**的余额（[balancesAfter] 提供时）。
  */
 @Composable
 fun TxnRow(
@@ -121,16 +123,27 @@ fun TxnRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
+        // 顶上：具体时间
+        if (item.timeOfDay >= 0) {
+            Text(
+                text = formatMinuteOfDay(item.timeOfDay),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             CategoryBadge(item.category)
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = when (item.type) {
-                    TxnType.EXPENSE -> item.category?.name ?: "支出"
-                    TxnType.INCOME -> item.category?.name ?: "收入"
                     TxnType.TRANSFER -> "${item.accountName} → ${item.toAccountName ?: ""}"
+                    else -> item.project.ifBlank {
+                        item.category?.name ?: when (item.type) {
+                            TxnType.EXPENSE -> "支出"; TxnType.INCOME -> "收入"; TxnType.TRANSFER -> "转账"
+                        }
+                    }
                 },
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
@@ -154,21 +167,10 @@ fun TxnRow(
                 maxLines = 1,
             )
         }
-        // 小字：整行通栏，独占一行，不与余额挤在同一行
-        val subtitle = buildString {
-            if (item.timeOfDay >= 0) append(formatMinuteOfDay(item.timeOfDay) + " · ")
-            if (item.type == TxnType.TRANSFER) append("转账")
-            else append(item.accountName)
-            if (item.project.isNotBlank()) append(" · ${item.project}")
-            if (item.note.isNotBlank()) append(" · ${item.note}")
-            if (item.backfill) append(" · 补录")
-            if (item.refundSum > 0) append(" · 退${item.refundSum.toYuan()}")
-            if (item.reimburseSum > 0) append(" · 报${item.reimburseSum.toYuan()}")
-            if (item.attachmentCount > 0) append(" · ${item.attachmentCount}张附件")
-        }
+        // 小字：整行通栏，只显示备注；右侧展开箭头
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = subtitle,
+                text = item.note,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline,
                 maxLines = 1,
@@ -177,52 +179,98 @@ fun TxnRow(
                     .weight(1f)
                     .padding(top = 2.dp),
             )
-            if (!balancesAfter.isNullOrEmpty()) {
-                IconButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.size(22.dp),
-                ) {
-                    Icon(
-                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (expanded) "收起余额" else "展开余额",
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+            IconButton(
+                onClick = { expanded = !expanded },
+                modifier = Modifier.size(22.dp),
+            ) {
+                Icon(
+                    if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "收起详情" else "展开详情",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
-        // 可收起条：经过这一步之后各涉及账户的余额
-        if (expanded && !balancesAfter.isNullOrEmpty()) {
+        // 展开区：分类 / 涉及账户 / 退款报销附件摘要 + 全部账户余额
+        if (expanded) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 4.dp),
             ) {
-                balancesAfter.forEach { (name, bal) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            name,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            bal.toYuan() + " 元",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = if (bal < 0) MaterialTheme.colorScheme.expense
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
+                if (item.type != TxnType.TRANSFER && item.category != null) {
+                    TxnDetailLine("分类", item.category.name)
+                }
+                TxnDetailLine(
+                    if (item.type == TxnType.TRANSFER) "转出 → 转入" else "账户",
+                    when (item.type) {
+                        TxnType.TRANSFER -> "${item.accountName} → ${item.toAccountName ?: ""}"
+                        else -> item.accountName
+                    },
+                )
+                val extra = buildList {
+                    if (item.refundSum > 0) add("退款合计 ${item.refundSum.toYuan()} 元")
+                    if (item.reimburseSum > 0) add("报销合计 ${item.reimburseSum.toYuan()} 元")
+                    if (item.attachmentCount > 0) add("${item.attachmentCount} 张附件")
+                }
+                extra.forEach { TxnDetailLine("其他", it) }
+                if (!balancesAfter.isNullOrEmpty()) {
+                    Text(
+                        "经过这步后各账户余额",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                    balancesAfter.forEach { (name, bal) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                bal.toYuan() + " 元",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = if (bal < 0) MaterialTheme.colorScheme.expense
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** 展开区的一行「标签：内容」 */
+@Composable
+private fun TxnDetailLine(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.width(72.dp),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

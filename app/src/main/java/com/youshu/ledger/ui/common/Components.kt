@@ -282,14 +282,15 @@ fun DateTimeButtonsRow(
 }
 
 /**
- * 账本切换栏：放在每个主页面顶部（标题下方）。
- * 显示当前账本，点击下拉切换。
+ * 账本切换栏：放在每个主页面**最顶部**（标题栏之上）。
+ * [large] = true 时使用更大字号（主页面顶部）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookSwitcherBar(
     container: com.youshu.ledger.data.AppContainer,
     modifier: Modifier = Modifier,
+    large: Boolean = false,
 ) {
     val books by container.bookRepository.observeAll()
         .collectAsState(emptyList())
@@ -300,12 +301,14 @@ fun BookSwitcherBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 2.dp),
+            .padding(horizontal = 16.dp, vertical = if (large) 6.dp else 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             "账本：${current?.name ?: "…"}",
-            style = MaterialTheme.typography.bodyMedium,
+            style = if (large) MaterialTheme.typography.titleMedium
+            else MaterialTheme.typography.bodyMedium,
+            fontWeight = if (large) FontWeight.Medium else null,
             maxLines = 1,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false),
@@ -416,6 +419,29 @@ class AmountInputState(initial: String = "") {
 
     fun backspace() {
         text = text.dropLast(1)
+    }
+
+    /**
+     * 文本框直输（v1.6 起金额改为系统键盘文本框）：仅接受合法金额文本，
+     * 非法字符 / 多个小数点 / 超过两位小数 / 超过 9 位数字的输入直接忽略，
+     * 输入框因此永远合法，无需额外的红字校验。
+     */
+    fun setText(newText: String) {
+        val t = newText
+        if (t.isEmpty()) {
+            text = ""
+            return
+        }
+        if (t.count { it == '.' } > 1) return
+        if (!t.all { it.isDigit() || it == '.' }) return
+        val decimals = t.substringAfter('.', "")
+        if (decimals.length > 2) return
+        if (t.replace(".", "").length > 9) return
+        text = t
+        // 去掉前导零（保留 0.x）
+        if (text.length > 1 && text.startsWith("0") && !text.startsWith("0.")) {
+            text = text.trimStart('0').ifEmpty { "0" }
+        }
     }
 
     fun clear() {

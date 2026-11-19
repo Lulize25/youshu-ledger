@@ -63,7 +63,13 @@ fun StatsScreen(container: AppContainer) {
     var showBudgetDialog by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { LedgerTopBar(title = "统计") },
+        topBar = {
+            Column {
+                // 账本切换：页面最顶部，字号放大
+                BookSwitcherBar(container = container, large = true)
+                LedgerTopBar(title = "统计")
+            }
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -72,16 +78,10 @@ fun StatsScreen(container: AppContainer) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
-            // 账本切换
-            BookSwitcherBar(
-                container = container,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-
             // ---- 周期切换 ----
             SingleChoiceSegmentedButtonRow(modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)) {
+                .padding(vertical = 4.dp)) {
                 PeriodType.entries.forEachIndexed { index, type ->
                     SegmentedButton(
                         selected = s.periodType == type,

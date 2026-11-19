@@ -85,28 +85,27 @@ fun TxnsScreen(
 
     Scaffold(
         topBar = {
-            LedgerTopBar(
-                title = "流水",
-                actions = {
-                    IconButton(onClick = { showFilters = !showFilters }) {
-                        Icon(Icons.Default.Search, contentDescription = "筛选")
-                    }
-                },
-            )
+            Column {
+                // 账本切换：页面最顶部，字号放大
+                BookSwitcherBar(container = container, large = true)
+                LedgerTopBar(
+                    title = "流水",
+                    actions = {
+                        IconButton(onClick = { showFilters = !showFilters }) {
+                            Icon(Icons.Default.Search, contentDescription = "筛选")
+                        }
+                    },
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            // 账本切换
-            BookSwitcherBar(
-                container = container,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            // 汇总条
+            // 汇总条（压缩为一行小字）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text("收入 ", style = MaterialTheme.typography.bodySmall)

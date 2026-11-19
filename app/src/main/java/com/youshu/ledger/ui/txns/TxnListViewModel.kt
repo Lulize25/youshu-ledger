@@ -49,7 +49,7 @@ data class TxnListUiState(
     val filters: TxnFilters = TxnFilters(),
     val totalIncome: Long = 0,
     val totalExpense: Long = 0,
-    /** 每笔流水「经过这一步之后」各涉及账户的余额：txnId →（账户名 → 余额） */
+    /** 每笔流水「经过这一步之后」**全部账户**的余额：txnId →（账户名 → 余额） */
     val balancesAfter: Map<Long, Map<String, Long>> = emptyMap(),
 )
 
@@ -127,9 +127,10 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
     }
 
     /**
-     * 计算每笔流水「经过这一步之后」各涉及账户的余额：
+     * 计算每笔流水「经过这一步之后」各账户的余额：
      * 把账本内全部流水按账户展开成事件流（流水影响 / 退款 / 报销 / 收回代付，各带发生时刻），
      * 再对每个账户做按时间排序的前缀和；某笔流水之后的余额 = 期初 + 时刻 ≤ 该流水生效时刻的事件合计。
+     * v1.6 起对每笔流水返回**全部账户**的余额（流水页展开区全量展示）。
      */
     private fun buildBalancesAfter(
         allTxns: List<TransactionWithDetails>,
@@ -184,17 +185,8 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
         return allTxns.associate { d ->
             val t = d.transaction
             val eff = t.effectiveTimeMillis()
-            val involved = buildList {
-                add(t.accountId)
-                t.toAccountId?.let { add(it) }
-                d.refunds.forEach { add(it.accountId) }
-                d.reimbursements.forEach { add(it.accountId) }
-            }.distinct()
-            val named = involved.mapNotNull { id ->
-                val name = accounts.firstOrNull { it.id == id }?.name ?: return@mapNotNull null
-                name to balanceAt(id, eff)
-            }
-            t.id to named.toMap()
+            // v1.6：展开区显示「全部账户」在此时此刻的余额（不再只列涉及账户）
+            t.id to accounts.associate { it.name to balanceAt(it.id, eff) }
         }
     }
 

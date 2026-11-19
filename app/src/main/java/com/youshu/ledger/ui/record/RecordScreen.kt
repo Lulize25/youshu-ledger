@@ -71,6 +71,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -129,7 +131,6 @@ fun RecordScreen(
     var showTimePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showFeeDialog by remember { mutableStateOf(false) }
-    var categoryQuery by remember { mutableStateOf("") }
     // 添加分类：null=添加根分类，否则为父分类 id（添加二级分类）
     var addCategoryParentId by remember { mutableStateOf<Long?>(null) }
     var addCategoryShow by remember { mutableStateOf(false) }
@@ -204,6 +205,48 @@ fun RecordScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
+            // ---- 项目名称（表单第一项） ----
+            OutlinedTextField(
+                value = s.project,
+                onValueChange = { text -> vm.update { it.copy(project = text) } },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("项目名称（可选）") },
+                placeholder = { Text("如：装修、旅行…") },
+                singleLine = true,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // ---- 时间：左日期右时间两栏，各自独立修改（默认当前时刻） ----
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.DateRange, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = s.businessDate.formatDay(),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Schedule, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = formatMinuteOfDay(s.timeOfDay)
+                            .ifEmpty { formatMinuteOfDay(currentMinuteOfDay()) },
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             // ---- 类型切换 ----
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 val types = listOf(TxnType.EXPENSE, TxnType.INCOME, TxnType.TRANSFER)
@@ -222,57 +265,39 @@ fun RecordScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // ---- 金额（唯一数据源：vm.amountInput） ----
+            // ---- 金额：系统数字键盘文本框（非法字符直接拒输，输入永远合法） ----
             val amountColor = when (s.type) {
                 TxnType.EXPENSE -> MaterialTheme.colorScheme.expense
                 TxnType.INCOME -> MaterialTheme.colorScheme.income
                 TxnType.TRANSFER -> MaterialTheme.colorScheme.primary
             }
             amountRefresh.let { }
-            Text(
-                text = "¥ " + vm.amountInput.text.ifEmpty { "0.00" },
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-                color = amountColor,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.End,
-            )
-            AmountKeyboard(
-                onKey = { key ->
-                    when (key) {
-                        "⌫" -> vm.amountInput.backspace()
-                        "." -> vm.amountInput.append('.')
-                        else -> key.firstOrNull()?.let { vm.amountInput.append(it) }
-                    }
+            OutlinedTextField(
+                value = vm.amountInput.text,
+                onValueChange = { input ->
+                    vm.amountInput.setText(input)
                     vm.persistDraft()
                     amountRefresh++
                 },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("金额（元）") },
+                placeholder = { Text("0.00") },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.titleLarge.copy(
+                    color = amountColor,
+                    fontWeight = FontWeight.Bold,
+                ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ---- 分类：搜索 + 两级网格（可新增分类/二级分类） ----
+            // ---- 分类：两级网格（可新增分类/二级分类，无搜索框） ----
             if (s.type != TxnType.TRANSFER) {
-                OutlinedTextField(
-                    value = categoryQuery,
-                    onValueChange = { categoryQuery = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("搜索分类") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (categoryQuery.isNotEmpty()) {
-                            IconButton(onClick = { categoryQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "清空")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
                 CategoryGrid(
-                    tree = s.filteredCategoryTree(categoryQuery),
+                    tree = s.categoryTree,
                     selectedId = s.categoryId,
                     onSelect = { id -> vm.update { it.copy(categoryId = id) } },
                     onAdd = { parentId ->
@@ -327,48 +352,6 @@ fun RecordScreen(
                 ) { id -> vm.update { it.copy(accountId = id) } }
                 Spacer(modifier = Modifier.height(8.dp))
             }
-
-            // ---- 时间：左日期右时间两栏，各自独立修改（默认当前时刻） ----
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.DateRange, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = s.businessDate.formatDay(),
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Schedule, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = formatMinuteOfDay(s.timeOfDay)
-                            .ifEmpty { formatMinuteOfDay(currentMinuteOfDay()) },
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // ---- 项目名称 ----
-            OutlinedTextField(
-                value = s.project,
-                onValueChange = { text -> vm.update { it.copy(project = text) } },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("项目名称（可选）") },
-                placeholder = { Text("如：装修、旅行…") },
-                singleLine = true,
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
 
             // ---- 备注 ----
             OutlinedTextField(
@@ -469,33 +452,7 @@ fun RecordScreen(
     }
 }
 
-/** 自定义记账键盘：直接写入 ViewModel 的 AmountInputState（唯一数据源） */
-@Composable
-private fun AmountKeyboard(onKey: (String) -> Unit) {
-    val keys = listOf(
-        listOf("1", "2", "3"),
-        listOf("4", "5", "6"),
-        listOf("7", "8", "9"),
-        listOf(".", "0", "⌫"),
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        keys.forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                row.forEach { key ->
-                    androidx.compose.material3.FilledTonalButton(
-                        onClick = { onKey(key) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                    ) { Text(key, fontSize = 18.sp) }
-                }
-            }
-        }
-    }
-}
+/** 自定义记账键盘已移除（v1.6）：金额改为系统数字键盘文本框，见表单内 OutlinedTextField。 */
 
 /** 添加分类对话框（根分类或某根分类下的二级分类） */
 @Composable

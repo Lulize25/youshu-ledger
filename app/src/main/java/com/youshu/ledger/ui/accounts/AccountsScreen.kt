@@ -228,7 +228,13 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
     var pendingDelete by remember { mutableStateOf<AccountEntity?>(null) }
 
     Scaffold(
-        topBar = { LedgerTopBar(title = "账户") },
+        topBar = {
+            Column {
+                // 账本切换：页面最顶部，字号放大
+                com.youshu.ledger.ui.common.BookSwitcherBar(container, large = true)
+                LedgerTopBar(title = "账户")
+            }
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreate = true }) {
                 Icon(Icons.Default.Add, contentDescription = "新建账户")
@@ -241,17 +247,13 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
                 .padding(padding)
                 .fillMaxSize(),
         ) {
-            // 账本切换栏：顶部切换当前账本
-            item(key = "book_bar") {
-                com.youshu.ledger.ui.common.BookSwitcherBar(container)
-            }
             // 截至时间选择：各账户余额与合计均按所选时刻计算（默认当前时间；
             // 左「日历」选日期、右「时钟」选时刻，各自独立修改）
             item(key = "as_of") {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                        .padding(horizontal = 12.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -284,7 +286,7 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                     ),
@@ -292,7 +294,7 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
