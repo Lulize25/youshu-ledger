@@ -185,6 +185,30 @@ fun MoneyInputDialog(
     )
 }
 
+/** 纯时间（当天分钟数）选择对话框：表盘式 TimePicker，不滚动 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MinutePickerDialog(
+    title: String,
+    initialMinuteOfDay: Int,
+    onConfirm: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val state = rememberTimePickerState(
+        initialHour = (initialMinuteOfDay / 60).coerceIn(0, 23),
+        initialMinute = (initialMinuteOfDay % 60).coerceIn(0, 59),
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { TimePicker(state = state) },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) { Text("确定") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
 /**
  * 日期时间一体选择对话框：同一个对话框里先选日期、再选时间，一次确定。
  */
@@ -198,7 +222,9 @@ fun DateTimePickerDialog(
 ) {
     val dayStart = initialMillis.toLocalDate().toEpochMillis()
     val minuteOfDay = ((initialMillis - dayStart) / 60_000L).toInt().coerceIn(0, 1439)
-    val dateState = rememberDatePickerState(initialSelectedDateMillis = dayStart)
+    // 同 DayPickerDialog：DatePicker 是 UTC 语义，需换算避免东八区差一天
+    val utcMillis = initialMillis.toLocalDate().atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+    val dateState = rememberDatePickerState(initialSelectedDateMillis = utcMillis)
     val timeState = rememberTimePickerState(
         initialHour = minuteOfDay / 60,
         initialMinute = minuteOfDay % 60,
@@ -214,8 +240,10 @@ fun DateTimePickerDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val day = dateState.selectedDateMillis ?: return@TextButton
-                onConfirm(day + (timeState.hour * 60 + timeState.minute) * 60_000L)
+                val utc = dateState.selectedDateMillis ?: return@TextButton
+                val dayStart = java.time.Instant.ofEpochMilli(utc).atZone(java.time.ZoneOffset.UTC)
+                    .toLocalDate().toEpochMillis()
+                onConfirm(dayStart + (timeState.hour * 60 + timeState.minute) * 60_000L)
             }) { Text("确定") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
@@ -303,12 +331,20 @@ fun DayPickerDialog(
     onConfirm: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val state = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+    // M3 DatePicker 的 selectedDateMillis 是 UTC 语义：本地日期需先转成 UTC 当天 00:00，
+    // 否则东八区会显示/存回前一天
+    val utcMillis = initialMillis.toLocalDate().atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+    val state = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = utcMillis)
     DatePickerDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = {
-                state.selectedDateMillis?.let(onConfirm)
+                state.selectedDateMillis?.let { utc ->
+                    onConfirm(
+                        java.time.Instant.ofEpochMilli(utc).atZone(java.time.ZoneOffset.UTC)
+                            .toLocalDate().toEpochMillis(),
+                    )
+                }
             }) { Text("确定") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },

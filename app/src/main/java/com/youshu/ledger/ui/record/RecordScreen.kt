@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
@@ -95,6 +96,7 @@ import com.youshu.ledger.ui.common.CategoryBadge
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.DateTimePickerDialog
 import com.youshu.ledger.ui.common.DayPickerDialog
+import com.youshu.ledger.ui.common.MinutePickerDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
 import com.youshu.ledger.ui.common.MoneyInputDialog
 import com.youshu.ledger.ui.common.accountIconColor
@@ -123,7 +125,8 @@ fun RecordScreen(
     val s by vm.ui.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    var showDateTimePicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showFeeDialog by remember { mutableStateOf(false) }
     var categoryQuery by remember { mutableStateOf("") }
@@ -325,20 +328,32 @@ fun RecordScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // ---- 时间：日期+分钟一体（默认当前时刻） ----
-            val effectiveTimeMillis =
-                s.businessDate + (if (s.timeOfDay >= 0) s.timeOfDay else currentMinuteOfDay()) * 60_000L
-            OutlinedButton(onClick = { showDateTimePicker = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Default.DateRange, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "时间：" + s.businessDate.formatDay() + " " +
-                        formatMinuteOfDay(s.timeOfDay).ifEmpty { "未设置" } + "（点击修改）",
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+            // ---- 时间：左日期右时间两栏，各自独立修改（默认当前时刻） ----
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(onClick = { showDatePicker = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.DateRange, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = s.businessDate.formatDay(),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                OutlinedButton(onClick = { showTimePicker = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Schedule, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = formatMinuteOfDay(s.timeOfDay)
+                            .ifEmpty { formatMinuteOfDay(currentMinuteOfDay()) },
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -401,21 +416,26 @@ fun RecordScreen(
         }
     }
 
-    if (showDateTimePicker) {
-        DateTimePickerDialog(
-            initialMillis = s.businessDate + (if (s.timeOfDay >= 0) s.timeOfDay else currentMinuteOfDay()) * 60_000L,
-            title = "交易时间",
+    if (showDatePicker) {
+        DayPickerDialog(
+            initialMillis = s.businessDate,
             onConfirm = { millis ->
-                val dayStart = millis.toLocalDate().toEpochMillis()
-                vm.update {
-                    it.copy(
-                        businessDate = dayStart,
-                        timeOfDay = ((millis - dayStart) / 60_000L).toInt(),
-                    )
-                }
-                showDateTimePicker = false
+                vm.update { it.copy(businessDate = millis) }
+                showDatePicker = false
             },
-            onDismiss = { showDateTimePicker = false },
+            onDismiss = { showDatePicker = false },
+        )
+    }
+
+    if (showTimePicker) {
+        MinutePickerDialog(
+            title = "交易时间",
+            initialMinuteOfDay = if (s.timeOfDay >= 0) s.timeOfDay else currentMinuteOfDay(),
+            onConfirm = { minute ->
+                vm.update { it.copy(timeOfDay = minute) }
+                showTimePicker = false
+            },
+            onDismiss = { showTimePicker = false },
         )
     }
 
