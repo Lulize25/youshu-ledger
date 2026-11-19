@@ -75,6 +75,50 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+/**
+ * v6 → v7：分类不再按账本隔离，全局共享（bookId 列保留但语义废弃，统一置 0）。
+ * 各账本重复的分类（同类型 + 同名 + 同父）合并为一条：流水与预算中的引用重定向到保留项。
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        data class Row(val id: Long, val type: String, val parentId: Long?, val name: String)
+
+        val rows = mutableListOf<Row>()
+        db.query("SELECT `id`, `type`, `parentId`, `name` FROM `categories` ORDER BY `id` ASC").use { c ->
+            while (c.moveToNext()) {
+                rows.add(
+                    Row(
+                        id = c.getLong(0),
+                        type = c.getString(1),
+                        parentId = if (c.isNull(2)) null else c.getLong(2),
+                        name = c.getString(3),
+                    ),
+                )
+            }
+        }
+        val nameOf = rows.associate { it.id to it.name }
+        // 去重键：类型 + 父分类名（根分类为空串）+ 名称
+        val canonical = HashMap<String, Long>()
+        val dupToCanon = HashMap<Long, Long>()
+        rows.forEach { r ->
+            val parentName = r.parentId?.let { nameOf[it] } ?: ""
+            val key = r.type + "" + parentName + "" + r.name
+            val keep = canonical.getOrPut(key) { r.id }
+            if (keep != r.id) dupToCanon[r.id] = keep
+        }
+        // 引用重定向：流水与预算中的分类 id 指向被合并项时改指保留项
+        dupToCanon.forEach { (dup, canon) ->
+            db.execSQL("UPDATE `transactions` SET `categoryId` = $canon WHERE `categoryId` = $dup")
+            db.execSQL("UPDATE `budgets` SET `categoryId` = $canon WHERE `categoryId` = $dup")
+        }
+        if (dupToCanon.isNotEmpty()) {
+            val ids = dupToCanon.keys.joinToString(",")
+            db.execSQL("DELETE FROM `categories` WHERE `id` IN ($ids)")
+        }
+        db.execSQL("UPDATE `categories` SET `bookId` = 0")
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -147,7 +191,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -171,7 +215,10 @@ abstract class LedgerDatabase : RoomDatabase() {
                     "ledger.db",
                 )
                     // 只走显式迁移：宁可升级失败报错，也绝不静默清空用户记账数据
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(
+                        MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
+                        MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                    )
                     .build()
                     .also { instance = it }
             }

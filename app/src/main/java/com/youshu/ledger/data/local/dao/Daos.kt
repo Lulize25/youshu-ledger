@@ -90,14 +90,15 @@ interface AccountDao {
 @Dao
 interface CategoryDao {
 
-    @Query("SELECT * FROM categories WHERE bookId = :bookId ORDER BY sortOrder ASC, id ASC")
-    fun observeByBook(bookId: Long): Flow<List<CategoryEntity>>
+    /** 全部分类（v1.5.1 起分类不再按账本隔离，全局共享；bookId 恒为 0） */
+    @Query("SELECT * FROM categories ORDER BY sortOrder ASC, id ASC")
+    fun observeAll(): Flow<List<CategoryEntity>>
 
-    @Query("SELECT * FROM categories WHERE bookId = :bookId AND type = :type ORDER BY sortOrder ASC, id ASC")
-    suspend fun getByBookAndType(bookId: Long, type: CategoryType): List<CategoryEntity>
+    @Query("SELECT * FROM categories ORDER BY sortOrder ASC, id ASC")
+    suspend fun getAll(): List<CategoryEntity>
 
-    @Query("SELECT * FROM categories WHERE bookId = :bookId ORDER BY sortOrder ASC, id ASC")
-    suspend fun getByBook(bookId: Long): List<CategoryEntity>
+    @Query("SELECT * FROM categories WHERE type = :type ORDER BY sortOrder ASC, id ASC")
+    suspend fun getByType(type: CategoryType): List<CategoryEntity>
 
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun getById(id: Long): CategoryEntity?
@@ -114,8 +115,8 @@ interface CategoryDao {
     @Delete
     suspend fun delete(category: CategoryEntity)
 
-    @Query("SELECT COUNT(*) FROM categories WHERE bookId = :bookId")
-    suspend fun countByBook(bookId: Long): Int
+    @Query("SELECT COUNT(*) FROM categories")
+    suspend fun countAll(): Int
 
     @Query("DELETE FROM categories")
     suspend fun clearAll()

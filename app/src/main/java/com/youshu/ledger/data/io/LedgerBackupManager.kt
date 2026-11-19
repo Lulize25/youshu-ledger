@@ -37,7 +37,7 @@ class LedgerBackupManager(
     suspend fun buildBackup(): BackupFile {
         val books = bookDao.getAll()
         val accounts = books.flatMap { accountDao.getByBook(it.id) }
-        val categories = books.flatMap { categoryDao.getByBook(it.id) }
+        val categories = categoryDao.getAll()
         val txns = books.flatMap { txnDao.getByBook(it.id) }
         val budgets = books.flatMap { budgetDao.getAllByBook(it.id) }
         return BackupFile(
@@ -59,6 +59,7 @@ class LedgerBackupManager(
                     timeOfDay = d.transaction.timeOfDay,
                     refunds = d.refunds.map { it.toDto() },
                     reimbursements = d.reimbursements.map { it.toDto() },
+                    advances = d.advances.map { it.toDto() },
                     attachments = d.attachments.map { it.relativePath },
                 )
             },

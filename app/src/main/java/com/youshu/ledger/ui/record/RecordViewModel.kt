@@ -165,7 +165,7 @@ class RecordViewModel(
         viewModelScope.launch {
             val book = bookRepo.currentBook.filterNotNull().first()
             val accounts = accountRepo.getByBook(book.id)
-            val categories = categoryRepo.getByBook(book.id)
+            val categories = categoryRepo.getAll()
             val draft = draftOrNull()
             var state = _ui.value.copy(
                 loading = false,
@@ -277,7 +277,7 @@ class RecordViewModel(
                 return@launch
             }
             val bookId = _ui.value.bookId
-            val all = categoryRepo.getByBook(bookId)
+            val all = categoryRepo.getAll()
             val ofType = all.filter { it.type == type }
             val sortOrder = (ofType.maxOfOrNull { it.sortOrder } ?: -1) + 1
             val trimmed = name.trim()
@@ -293,7 +293,7 @@ class RecordViewModel(
                 ),
             )
             _ui.value = _ui.value.copy(
-                categories = categoryRepo.getByBook(bookId),
+                categories = categoryRepo.getAll(),
                 categoryId = id,
             )
             persistDraft()

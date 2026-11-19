@@ -48,6 +48,8 @@ object DefaultDataSeeder {
 
     /**
      * 若数据库为空则创建默认账本与预置分类。
+     * 分类自 v1.5.1 起全局共享：仅当分类表为空时写入预置分类（首次启动），
+     * 之后任何账本都直接使用全部分类。
      * 返回默认账本 id（已存在则直接返回已有默认账本 id）。
      */
     suspend fun seedIfEmpty(bookDao: BookDao, categoryDao: CategoryDao, now: Long): Long {
@@ -57,12 +59,12 @@ object DefaultDataSeeder {
         val bookId = bookDao.upsert(
             BookEntity(name = "日常账本", createdAt = now, isDefault = true),
         )
-        insertCategoriesForBook(categoryDao, bookId)
+        if (categoryDao.countAll() == 0) insertCategoriesForBook(categoryDao)
         return bookId
     }
 
-    /** 将预置分类写入指定账本（用于新建账本时「从其他账本复制分类」之外的初始填充） */
-    suspend fun insertCategoriesForBook(categoryDao: CategoryDao, bookId: Long) {
+    /** 将预置分类写入分类表（全局，bookId = 0） */
+    suspend fun insertCategoriesForBook(categoryDao: CategoryDao) {
         var order = 0
         var colorIndex = 0
         fun nextColor(): Long = CATEGORY_COLORS[colorIndex++ % CATEGORY_COLORS.size]
@@ -72,7 +74,7 @@ object DefaultDataSeeder {
             tree.forEach { (name, children) ->
                 val parentId = categoryDao.upsert(
                     CategoryEntity(
-                        bookId = bookId,
+                        bookId = 0,
                         type = type,
                         parentId = null,
                         name = name,
@@ -84,7 +86,7 @@ object DefaultDataSeeder {
                 children.forEach { child ->
                     categoryDao.upsert(
                         CategoryEntity(
-                            bookId = bookId,
+                            bookId = 0,
                             type = type,
                             parentId = parentId,
                             name = child,

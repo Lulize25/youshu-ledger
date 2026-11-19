@@ -107,7 +107,8 @@ fun AccountDto.toEntity() = AccountEntity(
 )
 
 fun CategoryEntity.toDto() = CategoryDto(id, bookId, type.name, parentId, name, sortOrder, color, iconText)
-fun CategoryDto.toEntity() = CategoryEntity(id, bookId, CategoryType.valueOf(type), parentId, name, sortOrder, color, iconText)
+// v1.5.1 起分类全局共享：恢复时 bookId 统一置 0
+fun CategoryDto.toEntity() = CategoryEntity(id, 0, CategoryType.valueOf(type), parentId, name, sortOrder, color, iconText)
 
 fun RefundRecordEntity.toDto() = RefundDto(id, amount, note, createdAt, accountId, timeMillis)
 fun RefundDto.toEntity(txnId: Long, defaultAccountId: Long) = RefundRecordEntity(

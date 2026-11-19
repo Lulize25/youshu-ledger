@@ -77,7 +77,7 @@ class AccountDetailViewModel(
                 txnRepo.observeByAccount(accountId),
                 settings.dataVersion,
             ) { txns, _ -> txns }.collect { txns ->
-                val categories = categoryRepo.getByBook(account.bookId)
+                val categories = categoryRepo.getAll()
                 val catById = categories.associateBy { it.id }
                 val displays = txns.map { it.toDisplay(catById) }
                 _ui.value = AccountDetailUiState(

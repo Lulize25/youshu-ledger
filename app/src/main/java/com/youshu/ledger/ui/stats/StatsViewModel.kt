@@ -116,7 +116,7 @@ class StatsViewModel(container: AppContainer) : ViewModel() {
         val receivableTotal = txnDao.receivableTotal(bookId)
 
         // 分类饼图（按支出金额合计，未退款抵减；切片按金额倒序，取前 8 + 其他）
-        val categories = categoryRepo.getByBook(bookId)
+        val categories = categoryRepo.getAll()
         val catById = categories.associateBy { it.id }
         val sums = txnDao.sumExpenseByCategory(bookId, start, end)
         val slices = sums

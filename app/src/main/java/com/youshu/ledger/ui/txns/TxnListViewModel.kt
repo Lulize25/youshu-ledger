@@ -72,7 +72,7 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
                         f.keywordOrNull, f.startDate, f.endDate,
                     ),
                     accountRepo.observeByBook(book.id),
-                    categoryRepo.observeByBook(book.id),
+                    categoryRepo.observeAll(),
                 ) { txns, accounts, categories ->
                     val accById = accounts.associateBy { it.id }
                     val catById = categories.associateBy { it.id }

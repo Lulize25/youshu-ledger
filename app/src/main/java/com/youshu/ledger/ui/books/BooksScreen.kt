@@ -68,20 +68,16 @@ data class BooksUiState(
 class BooksViewModel(container: AppContainer) : ViewModel() {
 
     private val bookRepo = container.bookRepository
-    private val categoryRepo = container.categoryRepository
 
     val uiState: StateFlow<BooksUiState> =
         combine(bookRepo.observeAll(), bookRepo.currentBook) { books, current ->
             BooksUiState(books = books, currentBookId = current?.id ?: 0)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), BooksUiState())
 
-    /** 新建账本（分类默认为空，可选择从其他账本复制分类） */
-    fun createBook(name: String, copyFromBookId: Long?, onDone: (String?) -> Unit) {
+    /** 新建账本（分类全局共享，新账本直接可用） */
+    fun createBook(name: String, onDone: (String?) -> Unit) {
         viewModelScope.launch {
             val id = bookRepo.createBook(name.trim())
-            if (copyFromBookId != null) {
-                categoryRepo.copyFromBook(copyFromBookId, id)
-            }
             bookRepo.switchTo(id)
             onDone(null)
         }
@@ -112,8 +108,7 @@ class BooksViewModel(container: AppContainer) : ViewModel() {
 }
 
 /**
- * 账本管理：新建/重命名/切换/删除（有数据需二次确认）、设置默认账本、
- * 新建时可选择「从其他账本复制分类」。
+ * 账本管理：新建/重命名/切换/删除（有数据需二次确认）、设置默认账本。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -194,7 +189,7 @@ fun BooksScreen(container: AppContainer, onBack: () -> Unit) {
             }
             item {
                 Text(
-                    "提示：分类、预算、账户均按账本隔离；最后一个账本不可删除。",
+                    "提示：账户、预算、流水按账本隔离，分类全局共享；最后一个账本不可删除。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                     modifier = Modifier.padding(16.dp),
@@ -205,9 +200,8 @@ fun BooksScreen(container: AppContainer, onBack: () -> Unit) {
 
     if (showCreate) {
         CreateBookDialog(
-            existingBooks = state.books,
-            onCreate = { name, copyFrom ->
-                vm.createBook(name, copyFrom) { err ->
+            onCreate = { name ->
+                vm.createBook(name) { err ->
                     scope.launch { snackbar.showSnackbar(err ?: "账本已创建") }
                 }
                 showCreate = false
@@ -246,13 +240,10 @@ fun BooksScreen(container: AppContainer, onBack: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateBookDialog(
-    existingBooks: List<BookEntity>,
-    onCreate: (name: String, copyFromBookId: Long?) -> Unit,
+    onCreate: (name: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
-    var copyFrom by remember { mutableStateOf<Long?>(null) }
-    var menu by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -266,37 +257,8 @@ private fun CreateBookDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (existingBooks.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = copyFrom != null, onCheckedChange = { checked ->
-                            copyFrom = if (checked) existingBooks.first().id else null
-                        })
-                        Text("从其他账本复制分类")
-                    }
-                    if (copyFrom != null) {
-                        ExposedDropdownMenuBox(expanded = menu, onExpandedChange = { menu = it }) {
-                            OutlinedTextField(
-                                value = existingBooks.first { it.id == copyFrom }.name,
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("来源账本") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(menu) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
-                            )
-                            ExposedDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                existingBooks.forEach { b ->
-                                    DropdownMenuItem(text = { Text(b.name) }, onClick = {
-                                        copyFrom = b.id; menu = false
-                                    })
-                                }
-                            }
-                        }
-                    }
-                }
                 Text(
-                    "不复制分类时，新账本分类为空，可稍后在分类管理中导入。",
+                    "分类自 v1.5.1 起全局共享，新账本可直接使用全部分类。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -305,7 +267,7 @@ private fun CreateBookDialog(
         confirmButton = {
             TextButton(
                 enabled = name.isNotBlank(),
-                onClick = { onCreate(name, copyFrom) },
+                onClick = { onCreate(name) },
             ) { Text("创建") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },

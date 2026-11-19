@@ -85,7 +85,7 @@ class BackupViewModel(
             runCatching {
                 val (bookMap, txns) = collectTxns(startDate, endDate, allBooks)
                 val accounts = bookMap.keys.flatMap { accountDao.getByBook(it) }.associateBy { it.id }
-                val categories = bookMap.keys.flatMap { categoryDao.getByBook(it) }
+                val categories = categoryDao.getAll()
                 // 预计算分类完整路径（如「餐饮/外卖」）
                 val pathCache = HashMap<Long, String>()
                 txns.mapNotNull { it.transaction.categoryId }.distinct().forEach { cid ->
@@ -111,7 +111,7 @@ class BackupViewModel(
             runCatching {
                 val (bookMap, txns) = collectTxns(startDate, endDate, allBooks)
                 val accounts = bookMap.keys.flatMap { accountDao.getByBook(it) }.associateBy { it.id }
-                val categories = bookMap.keys.flatMap { categoryDao.getByBook(it) }
+                val categories = categoryDao.getAll()
                 // 预计算分类完整路径（如「餐饮/外卖」）
                 val pathCache = HashMap<Long, String>()
                 txns.mapNotNull { it.transaction.categoryId }.distinct().forEach { cid ->

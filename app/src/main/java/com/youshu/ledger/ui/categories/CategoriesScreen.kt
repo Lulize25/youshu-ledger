@@ -1,5 +1,9 @@
 package com.youshu.ledger.ui.categories
 
+import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,12 +26,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,7 +60,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.youshu.ledger.data.AppContainer
-import com.youshu.ledger.data.local.entity.BookEntity
+import com.youshu.ledger.data.io.CategoryTransfer
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.seed.DefaultDataSeeder
@@ -68,41 +68,36 @@ import com.youshu.ledger.ui.common.CategoryBadge
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
 import com.youshu.ledger.ui.theme.expense
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class CategoriesUiState(
-    val bookId: Long = 0,
-    val bookName: String = "",
     val categories: List<CategoryEntity> = emptyList(),
-    val books: List<BookEntity> = emptyList(),
     val typeTab: CategoryType = CategoryType.EXPENSE,
 )
 
-class CategoriesViewModel(container: AppContainer) : ViewModel() {
+/**
+ * 分类管理（v1.5.1 起分类全局共享，不再按账本隔离）。
+ * 数据层走 Flow，新增 / 删除 / 编辑实时刷新，无需退出重进。
+ */
+class CategoriesViewModel(
+    private val container: AppContainer,
+    private val appContext: Context,
+) : ViewModel() {
 
-    private val bookRepo = container.bookRepository
     private val categoryRepo = container.categoryRepository
 
-    private val typeTab = kotlinx.coroutines.flow.MutableStateFlow(CategoryType.EXPENSE)
+    private val typeTab = MutableStateFlow(CategoryType.EXPENSE)
 
     val uiState: StateFlow<CategoriesUiState> =
-        combine(
-            bookRepo.currentBook,
-            bookRepo.observeAll(),
-            typeTab,
-        ) { book, books, tab ->
-            CategoriesUiState(
-                bookId = book?.id ?: 0,
-                bookName = book?.name ?: "",
-                categories = book?.let { categoryRepo.getByBook(it.id) } ?: emptyList(),
-                books = books,
-                typeTab = tab,
-            )
+        combine(categoryRepo.observeAll(), typeTab) { categories, tab ->
+            CategoriesUiState(categories = categories, typeTab = tab)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CategoriesUiState())
 
     fun setTab(type: CategoryType) {
@@ -117,32 +112,54 @@ class CategoriesViewModel(container: AppContainer) : ViewModel() {
         viewModelScope.launch { categoryRepo.delete(category) }
     }
 
-    /** 跨账本导入分类（从 sourceBookId 复制到当前账本） */
-    fun importFrom(sourceBookId: Long, onResult: (String) -> Unit) {
+    /** 导出全部分类到 JSON 文件（SAF） */
+    fun export(uri: Uri, onResult: (String) -> Unit) {
         viewModelScope.launch {
-            val current = bookRepo.currentBook.stateFirst() ?: return@launch
-            val n = categoryRepo.copyFromBook(sourceBookId, current.id)
-            onResult("已导入 $n 个分类")
+            val result = runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    CategoryTransfer.buildExport(categoryRepo.getAll(), System.currentTimeMillis())
+                }
+                appContext.contentResolver.openOutputStream(uri, "wt")?.use {
+                    it.write(text.toByteArray(Charsets.UTF_8))
+                } ?: error("无法写入所选位置")
+            }
+            onResult(result.fold({ "已导出分类" }, { "导出失败：${it.message}" }))
         }
     }
 
-    private suspend fun <T> kotlinx.coroutines.flow.Flow<T>.stateFirst(): T? = this.firstOrNull()
+    /** 从 JSON 文件导入分类（按 类型+父分类+名称 去重，缺失的创建） */
+    fun import(uri: Uri, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val text = withContext(Dispatchers.IO) {
+                    appContext.contentResolver.openInputStream(uri)?.use {
+                        it.bufferedReader(Charsets.UTF_8).readText()
+                    } ?: error("无法读取所选文件")
+                }
+                val nodes = CategoryTransfer.parse(text)
+                val n = categoryRepo.importTree(nodes)
+                "已导入 $n 个新分类"
+            }
+            onResult(result.getOrElse { "导入失败：${it.message}" })
+        }
+    }
 
     companion object {
-        fun factory(container: AppContainer) = viewModelFactory {
-            initializer { CategoriesViewModel(container) }
+        fun factory(container: AppContainer, context: Context) = viewModelFactory {
+            initializer { CategoriesViewModel(container, context.applicationContext) }
         }
     }
 }
 
 /**
  * 分类管理：树状展示（支出/收入分 tab）、增删改、
- * 图标编辑（圆形底色 + 1~2 字）、跨账本导入。
+ * 图标编辑（圆形底色 + 1~2 字）、分类导出 / 导入（JSON）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
-    val vm: CategoriesViewModel = viewModel(factory = CategoriesViewModel.factory(container))
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val vm: CategoriesViewModel = viewModel(factory = CategoriesViewModel.factory(container, context))
     val state by vm.uiState.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -151,10 +168,16 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
     var creatingParent by remember { mutableStateOf<CategoryEntity?>(null) }
     var showCreateRoot by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<CategoryEntity?>(null) }
-    var showImport by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { vm.export(it) { msg -> scope.launch { snackbar.showSnackbar(msg) } } }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { vm.import(it) { msg -> scope.launch { snackbar.showSnackbar(msg) } } }
+    }
 
     Scaffold(
-        topBar = { LedgerTopBar(title = "分类管理 · ${state.bookName}", onBack = onBack) },
+        topBar = { LedgerTopBar(title = "分类管理", onBack = onBack) },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreateRoot = true }) {
                 Icon(Icons.Default.Add, contentDescription = "新建分类")
@@ -175,12 +198,22 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
                     ) { Text(if (type == CategoryType.EXPENSE) "支出" else "收入") }
                 }
             }
-            OutlinedButton(
-                onClick = { showImport = true },
+            // 导出 / 导入
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-            ) { Text("从其他账本导入分类") }
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { exportLauncher.launch("youshu-categories.json") },
+                    modifier = Modifier.weight(1f),
+                ) { Text("导出分类") }
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("导入分类") }
+            }
 
             val ofType = state.categories
                 .filter { it.type == state.typeTab }
@@ -208,7 +241,7 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
             type = state.typeTab,
             maxSort = state.categories.count { it.type == state.typeTab },
             onSave = { cat ->
-                vm.save(cat.copy(bookId = state.bookId))
+                vm.save(cat)
                 showCreateRoot = false
             },
             onDismiss = { showCreateRoot = false },
@@ -252,18 +285,6 @@ fun CategoriesScreen(container: AppContainer, onBack: () -> Unit) {
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null },
-        )
-    }
-    if (showImport) {
-        ImportCategoriesDialog(
-            books = state.books.filter { it.name != state.bookName },
-            onImport = { fromId ->
-                vm.importFrom(fromId) { msg ->
-                    scope.launch { snackbar.showSnackbar(msg) }
-                }
-                showImport = false
-            },
-            onDismiss = { showImport = false },
         )
     }
 }
@@ -425,7 +446,7 @@ private fun CategoryEditDialog(
                 onClick = {
                     onSave(
                         (category ?: CategoryEntity(
-                            id = 0, bookId = parent?.bookId ?: 0, type = type,
+                            id = 0, bookId = 0, type = type,
                             parentId = parent?.id, name = "", sortOrder = maxSort,
                             color = color, iconText = "",
                         )).copy(
@@ -437,51 +458,6 @@ private fun CategoryEditDialog(
                 },
             ) { Text("保存") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ImportCategoriesDialog(
-    books: List<BookEntity>,
-    onImport: (Long) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    if (books.isEmpty()) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("导入分类") },
-            text = { Text("没有其他账本可复制分类。") },
-            confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
-        )
-        return
-    }
-    var menu by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf(books.first()) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("从其他账本导入分类") },
-        text = {
-            ExposedDropdownMenuBox(expanded = menu, onExpandedChange = { menu = it }) {
-                OutlinedTextField(
-                    value = selected.name,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("来源账本") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(menu) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryNotEditable),
-                )
-                ExposedDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    books.forEach { b ->
-                        DropdownMenuItem(text = { Text(b.name) }, onClick = { selected = b; menu = false })
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onImport(selected.id) }) { Text("导入") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }

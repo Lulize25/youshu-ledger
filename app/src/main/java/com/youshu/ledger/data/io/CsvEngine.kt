@@ -221,7 +221,7 @@ object CsvEngine {
                 val catType = when (type) {
                     TxnType.EXPENSE -> CategoryType.EXPENSE; else -> CategoryType.INCOME
                 }
-                val existing = categoryDao.getByBookAndType(bookId, catType).firstOrNull { it.name == leaf }
+                val existing = categoryDao.getByType(catType).firstOrNull { it.name == leaf }
                 existing ?: CategoryEntity(
                     id = categoryDao.upsert(
                         CategoryEntity(
