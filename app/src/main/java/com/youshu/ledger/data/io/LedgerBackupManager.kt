@@ -57,9 +57,9 @@ class LedgerBackupManager(
                     fee = d.transaction.fee, advanceAmount = d.transaction.advanceAmount,
                     recoveredAmount = d.transaction.recoveredAmount,
                     timeOfDay = d.transaction.timeOfDay,
+                    groupId = d.transaction.groupId,
+                    entryRole = d.transaction.entryRole.name,
                     refunds = d.refunds.map { it.toDto() },
-                    reimbursements = d.reimbursements.map { it.toDto() },
-                    advances = d.advances.map { it.toDto() },
                     attachments = d.attachments.map { it.relativePath },
                 )
             },
@@ -82,7 +82,6 @@ class LedgerBackupManager(
 
             // 1) 清空现有数据
             txnDao.clearAll()
-            txnDao.clearAdvances()
             budgetDao.clearAll()
             categoryDao.clearAll()
             accountDao.clearAll()
@@ -100,7 +99,7 @@ class LedgerBackupManager(
             val cats = backup.categories.sortedBy { if (it.parentId == null) 0 else 1 }
             cats.forEach { categoryDao.upsert(it.toEntity()) }
 
-            // 5) 流水 + 退款/报销/附件
+            // 5) 流水 + 退款/附件
             backup.transactions.forEach { t ->
                 txnDao.upsert(
                     com.youshu.ledger.data.local.entity.TransactionEntity(
@@ -111,14 +110,21 @@ class LedgerBackupManager(
                         toAccountId = t.toAccountId, fee = t.fee, project = t.project,
                         advanceAmount = t.advanceAmount, recoveredAmount = t.recoveredAmount,
                         timeOfDay = t.timeOfDay,
+                        groupId = t.groupId,
+                        entryRole = runCatching {
+                            com.youshu.ledger.data.local.entity.TxnRole.valueOf(t.entryRole)
+                        }.getOrDefault(com.youshu.ledger.data.local.entity.TxnRole.NORMAL),
                     ),
                 )
                 t.refunds.forEach { txnDao.upsertRefund(it.toEntity(t.id, t.accountId)) }
-                t.reimbursements.forEach { txnDao.upsertReimburse(it.toEntity(t.id, t.accountId)) }
-                t.advances.forEach { txnDao.upsertAdvance(it.toEntity(t.id)) }
                 t.attachments.forEach { rel ->
                     txnDao.upsertAttachment(AttachmentEntity(transactionId = t.id, relativePath = remapAttachmentPath(rel)))
                 }
+            }
+            // 5b) v1.7.1 及更早备份的报销/代付子表 → 角色条目流水（A钱条/报销条）
+            backup.transactions.forEach { t ->
+                t.reimbursements.forEach { txnDao.upsert(it.toRoleTxn(t)) }
+                t.advances.forEach { txnDao.upsert(it.toRoleTxn(t)) }
             }
 
             // 6) 预算

@@ -2,10 +2,10 @@ package com.youshu.ledger.domain.balance
 
 import com.youshu.ledger.data.local.entity.AccountEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
-import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
+import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -35,14 +35,11 @@ class BalanceCalculatorTest {
         id: Long,
         amount: Long,
         date: Long = today,
-        advance: Long = 0,
-        recovered: Long = 0,
         accountId: Long = 1L,
     ) = TransactionEntity(
         id = id, bookId = 1L, type = TxnType.EXPENSE, amount = amount,
         businessDate = date, createdAt = today, note = "", categoryId = 10L,
         accountId = accountId, toAccountId = null,
-        advanceAmount = advance, recoveredAmount = recovered,
     )
 
     private fun income(id: Long, amount: Long, date: Long = today, accountId: Long = 1L) =
@@ -51,6 +48,10 @@ class BalanceCalculatorTest {
             businessDate = date, createdAt = today, note = "", categoryId = 20L,
             accountId = accountId, toAccountId = null,
         )
+
+    /** A钱条 / 报销条 = 带角色标记的收入流水（v1.7.2） */
+    private fun roleIncome(id: Long, amount: Long, role: TxnRole, date: Long = today, accountId: Long = 1L) =
+        income(id, amount, date, accountId).copy(entryRole = role)
 
     private fun transfer(id: Long, amount: Long, fee: Long = 0, out: Long = 1L, into: Long = 2L) =
         TransactionEntity(
@@ -62,8 +63,7 @@ class BalanceCalculatorTest {
     private fun detail(
         txn: TransactionEntity,
         refunds: List<RefundRecordEntity> = emptyList(),
-        reimbursements: List<ReimburseRecordEntity> = emptyList(),
-    ) = TransactionWithDetails(txn, refunds, reimbursements, emptyList(), emptyList<AttachmentEntity>())
+    ) = TransactionWithDetails(txn, refunds, emptyList<AttachmentEntity>())
 
     private fun balance(vararg items: TransactionWithDetails) =
         BalanceCalculator.computeBalance(account, items.toList())
@@ -99,13 +99,16 @@ class BalanceCalculatorTest {
         assertEquals(60_00, BalanceCalculator.netExpense(refunded.transaction, 40_00, 0))
     }
 
-    /** 验收用例 4：支出 100 代付 40、收回 40 → 余额先 −100 再 +40，应收归 0，个人实际支出仍为 60 */
+    /** 验收用例 4：支出 100 + A钱条 40（v1.7.2 起 A钱 = 角色收入流水）→ 余额 −100 +40；净支出口径不变 */
     @Test
-    fun `case4 advance and recovery`() {
-        val settled = detail(expense(1, 100_00, advance = 40_00, recovered = 40_00))
-        assertEquals(440_00, balance(settled))
-        assertEquals(0, BalanceCalculator.receivableOf(settled.transaction))
-        assertEquals(60_00, BalanceCalculator.personalExpense(settled.transaction, 0, 0))
+    fun `case4 advance entry is an income transaction`() {
+        val items = listOf(
+            detail(expense(1, 100_00)),
+            detail(roleIncome(2, 40_00, TxnRole.ADVANCE)),
+        )
+        assertEquals(440_00, balance(*items.toTypedArray()))
+        assertEquals(100_00, BalanceCalculator.netExpense(items[0].transaction, 0, 0))
+        assertEquals(100_00, BalanceCalculator.personalExpense(items[0].transaction, 0, 0))
     }
 
     /** 验收用例 5：账户 A 向 B 转账 100（手续费 0）→ A−100、B+100；手续费 5 时 A−105 */

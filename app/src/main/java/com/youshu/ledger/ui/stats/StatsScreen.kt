@@ -110,38 +110,18 @@ fun StatsScreen(container: AppContainer) {
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    OverviewRow("收入合计", s.income, MaterialTheme.colorScheme.income)
+                    OverviewRow("收入合计（含 A钱 / 报销条）", s.income, MaterialTheme.colorScheme.income)
                     OverviewRow("支出总额", s.expenseGross, MaterialTheme.colorScheme.expense)
-                    if (s.refundSum > 0 || s.reimburseSum > 0) {
+                    if (s.refundSum > 0) {
                         OverviewRow(
-                            "　− 退款 / 报销",
-                            -(s.refundSum + s.reimburseSum),
+                            "　− 退款",
+                            -s.refundSum,
                             MaterialTheme.colorScheme.outline,
                         )
                     }
                     OverviewRow("净支出", s.netExpense, MaterialTheme.colorScheme.onSurface)
-                    if (s.advanceSum > 0) {
-                        OverviewRow("　− 代付", -s.advanceSum, MaterialTheme.colorScheme.outline)
-                    }
-                    OverviewRow("个人实际支出", s.personalExpense, MaterialTheme.colorScheme.onSurface)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     OverviewRow("结余（收入 − 净支出）", s.balance, MaterialTheme.colorScheme.primary)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { /* 应收明细可后续扩展 */ },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("应收（别人欠我）", style = MaterialTheme.typography.bodyMedium)
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text(
-                            s.receivableTotal.toYuan() + " 元",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (s.receivableTotal > 0) MaterialTheme.colorScheme.tertiary
-                            else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
                 }
             }
 

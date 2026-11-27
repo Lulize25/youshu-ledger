@@ -13,12 +13,10 @@ import com.youshu.ledger.data.local.dao.BudgetDao
 import com.youshu.ledger.data.local.dao.CategoryDao
 import com.youshu.ledger.data.local.dao.TransactionDao
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.BudgetEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
-import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 
@@ -171,6 +169,49 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
+/**
+ * v10 → v11：A钱 / 报销「条目化」（v1.7.2）。
+ * 旧的 reimburse_records / advance_records 子表废弃，改为：
+ * 流水表加 entryRole 列（NORMAL / ADVANCE / REIMBURSE），
+ * A钱条 / 报销条 = 带角色标记并关联进条目组（groupId）的收入流水。
+ * 迁移把旧子表数据逐条转换为收入流水（金额/账户/时间/备注/组号原样保留），随后删除旧表。
+ */
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `transactions` ADD COLUMN `entryRole` TEXT NOT NULL DEFAULT 'NORMAL'")
+        // 旧报销记录 → REIMBURSE 收入流水（时间拆成 业务日期 + 当天分钟）
+        db.execSQL(
+            "INSERT INTO `transactions` " +
+                "(`bookId`,`type`,`amount`,`businessDate`,`timeOfDay`,`createdAt`,`note`," +
+                "`categoryId`,`accountId`,`toAccountId`,`fee`,`project`," +
+                "`advanceAmount`,`recoveredAmount`,`groupId`,`entryRole`) " +
+                "SELECT t.`bookId`, 'INCOME', r.`amount`, " +
+                "(r.`timeMillis` / 86400000) * 86400000, " +
+                "CAST((r.`timeMillis` % 86400000) / 60000 AS INTEGER), " +
+                "r.`createdAt`, r.`note`, NULL, r.`accountId`, NULL, 0, '', 0, 0, r.`groupId`, 'REIMBURSE' " +
+                "FROM `reimburse_records` r INNER JOIN `transactions` t ON t.`id` = r.`transactionId`",
+        )
+        // 旧代付记录 → ADVANCE 收入流水（「谁」并入备注；缺金额记 0、缺时间记 -1）
+        db.execSQL(
+            "INSERT INTO `transactions` " +
+                "(`bookId`,`type`,`amount`,`businessDate`,`timeOfDay`,`createdAt`,`note`," +
+                "`categoryId`,`accountId`,`toAccountId`,`fee`,`project`," +
+                "`advanceAmount`,`recoveredAmount`,`groupId`,`entryRole`) " +
+                "SELECT t.`bookId`, 'INCOME', COALESCE(a.`amount`, 0), " +
+                "CASE WHEN a.`timeMillis` IS NULL THEN t.`businessDate` " +
+                "ELSE (a.`timeMillis` / 86400000) * 86400000 END, " +
+                "CASE WHEN a.`timeMillis` IS NULL THEN -1 " +
+                "ELSE CAST((a.`timeMillis` % 86400000) / 60000 AS INTEGER) END, " +
+                "a.`createdAt`, " +
+                "a.`person` || CASE WHEN a.`note` IS NOT NULL AND a.`note` != '' THEN '：' || a.`note` ELSE '' END, " +
+                "NULL, COALESCE(a.`accountId`, t.`accountId`), NULL, 0, '', 0, 0, a.`groupId`, 'ADVANCE' " +
+                "FROM `advance_records` a INNER JOIN `transactions` t ON t.`id` = a.`transactionId`",
+        )
+        db.execSQL("DROP TABLE `reimburse_records`")
+        db.execSQL("DROP TABLE `advance_records`")
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -238,12 +279,10 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         CategoryEntity::class,
         TransactionEntity::class,
         RefundRecordEntity::class,
-        ReimburseRecordEntity::class,
-        AdvanceRecordEntity::class,
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -270,7 +309,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                        MIGRATION_8_9, MIGRATION_9_10,
+                        MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                     )
                     .build()
                     .also { instance = it }

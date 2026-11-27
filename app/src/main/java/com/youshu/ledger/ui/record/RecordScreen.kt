@@ -81,11 +81,12 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
-import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
+import com.youshu.ledger.data.local.entity.RefundRecordEntity
+import com.youshu.ledger.data.local.entity.TransactionEntity
+import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.domain.util.currentMinuteOfDay
 import com.youshu.ledger.domain.util.formatDay
@@ -664,9 +665,10 @@ private fun AccountPicker(
 }
 
 /**
- * 退款/报销/代付区块：三个开关，开启后显示对应内容。
- * 退款/报销：金额+账户+时间必填、备注可选，可多次；
- * 代付：按「谁」逐人登记（金额/时间/账户/备注可选），收回按总额登记。
+ * 退款 / A钱 / 报销区块：三个开关，开启后显示对应内容。
+ * 退款：金额+账户+时间必填、备注可选，可多次（对话框录入，发生即退回账户余额）；
+ * A钱 / 报销：条目 = 带角色标记并关联进本组的收入流水，
+ * 开关下是只读条目列表，「添加」从已有收入流水中选择（去流水页记一笔后再回来关联即可）。
  */
 @Composable
 private fun ExpenseExtensionCard(
@@ -676,11 +678,11 @@ private fun ExpenseExtensionCard(
     scope: kotlinx.coroutines.CoroutineScope,
 ) {
     var refundOn by remember { mutableStateOf(s.refunds.isNotEmpty()) }
-    var reimburseOn by remember { mutableStateOf(s.reimbursements.isNotEmpty()) }
-    var advanceOn by remember { mutableStateOf(s.advances.isNotEmpty() || s.recoveredFen > 0) }
+    var reimburseOn by remember { mutableStateOf(s.groupReimburseEntries.isNotEmpty()) }
+    var advanceOn by remember { mutableStateOf(s.groupAdvanceEntries.isNotEmpty()) }
     var showRefundDialog by remember { mutableStateOf(false) }
-    var showRecoveryDialog by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
+    var pendingRole by remember { mutableStateOf<TxnRole?>(null) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -704,35 +706,32 @@ private fun ExpenseExtensionCard(
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // ---- 报销 ----
-            ExtensionSwitchRow("报销（可多次）", reimburseOn) { reimburseOn = it }
-            if (reimburseOn) {
-                ReimburseSection(vm, s, snackbar, scope)
+            // ---- A钱：他人还款条目（角色收入流水） ----
+            ExtensionSwitchRow("A钱（他人还款）", advanceOn) { advanceOn = it }
+            if (advanceOn) {
+                RoleEntrySection(
+                    entries = s.groupAdvanceEntries,
+                    accounts = s.accounts,
+                    emptyHint = "暂无。添加 = 从已有收入流水里选一条标记为 A钱条；组内任一流水上都能查看和移出",
+                    onAdd = { vm.loadRoleCandidates(); pendingRole = TxnRole.ADVANCE },
+                    onRemove = vm::clearEntryRole,
+                )
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // ---- 代付 ----
-            ExtensionSwitchRow("代付（替他人支付）", advanceOn) { advanceOn = it }
-            if (advanceOn) {
-                AdvanceSection(
-                    vm = vm,
-                    s = s,
-                    snackbar = snackbar,
-                    scope = scope,
+            // ---- 报销：报销到账条目（角色收入流水） ----
+            ExtensionSwitchRow("报销（到账）", reimburseOn) { reimburseOn = it }
+            if (reimburseOn) {
+                RoleEntrySection(
+                    entries = s.groupReimburseEntries,
+                    accounts = s.accounts,
+                    emptyHint = "暂无。添加 = 从已有收入流水里选一条标记为报销条；组内任一流水上都能查看和移出",
+                    onAdd = { vm.loadRoleCandidates(); pendingRole = TxnRole.REIMBURSE },
+                    onRemove = vm::clearEntryRole,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "已收回 ${s.recoveredFen.toYuan()} 元，应收 ${s.receivable.toYuan()} 元",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    if (s.receivable > 0) {
-                        TextButton(onClick = { showRecoveryDialog = true }) { Text("记收回") }
-                    }
-                }
             }
 
-            // ---- 关联流水（条目组）：A钱/报销条添加后自动组组，组内任一流水等价可见 ----
+            // ---- 关联流水（条目组）：组内其他支出条，等价可见 ----
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("关联流水（本组）", style = MaterialTheme.typography.titleSmall)
@@ -741,7 +740,7 @@ private fun ExpenseExtensionCard(
             }
             if (s.groupExpenses.isEmpty()) {
                 Text(
-                    "暂无。添加 A钱 / 报销条后自动组成本组；组内条目在任一流水上都能查看和修改",
+                    "暂无。关联后组内支出条在任一流水上都能查看和移出",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
@@ -770,7 +769,54 @@ private fun ExpenseExtensionCard(
         }
     }
 
-    // 选择已有流水加入本组
+    // 选择已有收入流水，标记为 A钱条 / 报销条
+    pendingRole?.let { role ->
+        AlertDialog(
+            onDismissRequest = { pendingRole = null },
+            title = {
+                Text(if (role == TxnRole.ADVANCE) "添加 A钱条（选择已有收入流水）" else "添加报销条（选择已有收入流水）")
+            },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    if (s.roleLinkCandidates.isEmpty()) {
+                        Text(
+                            "没有可添加的收入流水。请先在流水页「记一笔」录入该笔收入，再回来关联。",
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    } else {
+                        s.roleLinkCandidates.forEach { t ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        buildString {
+                                            append("${t.amount.toYuan()} 元 · ")
+                                            append(s.accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
+                                            append(" · ")
+                                            append(t.businessDate.formatDay())
+                                            val label = listOf(t.project, t.note)
+                                                .filter { it.isNotBlank() }
+                                                .joinToString(" ")
+                                            if (label.isNotBlank()) append("（$label）")
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                                onClick = {
+                                    vm.markEntryRole(t.id, role) { err ->
+                                        scope.launch { snackbar.showSnackbar(err ?: "已加入本组") }
+                                    }
+                                    pendingRole = null
+                                },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pendingRole = null }) { Text("关闭") } },
+        )
+    }
+
     if (showLinkDialog) {
         AlertDialog(
             onDismissRequest = { showLinkDialog = false },
@@ -778,7 +824,7 @@ private fun ExpenseExtensionCard(
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     if (s.linkCandidates.isEmpty()) {
-                        Text("没有可添加的支出流水", color = MaterialTheme.colorScheme.outline)
+                        Text("没有可添加的流水", color = MaterialTheme.colorScheme.outline)
                     } else {
                         s.linkCandidates.forEach { t ->
                             DropdownMenuItem(
@@ -825,18 +871,71 @@ private fun ExpenseExtensionCard(
             onDismiss = { showRefundDialog = false },
         )
     }
-    if (showRecoveryDialog) {
-        AmountNoteDialog(
-            title = "登记收回代付（发生即 +账户余额）",
-            defaultAmountFen = s.receivable,
-            onConfirm = { amount, _ ->
-                vm.addRecovery(amount) { err ->
-                    scope.launch { snackbar.showSnackbar(err ?: "已登记收回") }
+}
+
+/** A钱条 / 报销条区块：只读条目列表 + 「添加」从已有收入流水选择 + 移出本组 */
+@Composable
+private fun RoleEntrySection(
+    entries: List<TransactionEntity>,
+    accounts: List<AccountEntity>,
+    emptyHint: String,
+    onAdd: () -> Unit,
+    onRemove: (Long) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Spacer(modifier = Modifier.weight(1f))
+        TextButton(onClick = onAdd) { Text("添加") }
+    }
+    if (entries.isEmpty()) {
+        Text(emptyHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+    } else {
+        entries.forEach { t ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = buildString {
+                        append("${t.amount.toYuan()} 元 · ")
+                        append(accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
+                        append(" · ")
+                        append(t.businessDate.formatDay())
+                        val label = listOf(t.project, t.note).filter { it.isNotBlank() }.joinToString(" ")
+                        if (label.isNotBlank()) append("（$label）")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { onRemove(t.id) }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "移出本组", modifier = Modifier.size(18.dp))
                 }
-                showRecoveryDialog = false
-            },
-            onDismiss = { showRecoveryDialog = false },
-        )
+            }
+        }
+    }
+}
+
+/** 字符串行列表 + 添加按钮 + 逐行删除（退款记录用） */
+@Composable
+private fun RecordList(
+    rows: List<String>,
+    onAdd: () -> Unit,
+    onDeleteAt: (Int) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Spacer(modifier = Modifier.weight(1f))
+        TextButton(onClick = onAdd) { Text("添加") }
+    }
+    if (rows.isEmpty()) {
+        Text("无", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+    } else {
+        rows.forEachIndexed { index, row ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(row, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { onDeleteAt(index) }, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "删除", modifier = Modifier.size(18.dp))
+                }
+            }
+        }
     }
 }
 
@@ -965,395 +1064,6 @@ private fun RefundReimburseDialog(
     )
 }
 
-/**
- * 报销区块：组内全部报销条行内编辑（金额/账户/时间必填，备注可选）；
- * 尾行填齐必填（金额>0 + 账户）自动入库并出现新行。
- */
-@Composable
-private fun ReimburseSection(
-    vm: RecordViewModel,
-    s: RecordUiState,
-    snackbar: SnackbarHostState,
-    scope: kotlinx.coroutines.CoroutineScope,
-) {
-    // 尾行草稿（尚未入库）：0 表示未填
-    var draft by remember { mutableStateOf(ReimburseRecordEntity(0, 0, 0, 0, 0, "", 0, null)) }
-
-    fun draftHasContent(d: ReimburseRecordEntity) =
-        d.amount > 0 || d.accountId != 0L || d.timeMillis != 0L || d.note.isNotBlank()
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        s.reimbursements.forEach { record ->
-            ReimburseRow(
-                record = record,
-                accounts = s.visibleAccounts,
-                onChange = { updated ->
-                    vm.updateReimburse(updated.copy(id = record.id, transactionId = record.transactionId)) { err ->
-                        scope.launch { err?.let { snackbar.showSnackbar(it) } }
-                    }
-                },
-                onDelete = { vm.deleteReimburse(record) },
-            )
-        }
-        ReimburseRow(
-            record = draft,
-            accounts = s.visibleAccounts,
-            onChange = { updated ->
-                draft = updated
-                // 必填齐了自动入库
-                if (updated.amount > 0 && updated.accountId != 0L) {
-                    vm.addReimburse(
-                        updated.amount,
-                        updated.accountId,
-                        updated.timeMillis.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                        updated.note,
-                    ) { err ->
-                        if (err == null) {
-                            draft = ReimburseRecordEntity(0, 0, 0, 0, 0, "", 0, null)
-                        } else {
-                            scope.launch { snackbar.showSnackbar(err) }
-                        }
-                    }
-                }
-            },
-            onDelete = { if (draftHasContent(draft)) draft = ReimburseRecordEntity(0, 0, 0, 0, 0, "", 0, null) },
-            isDraft = true,
-        )
-    }
-}
-
-/** 单条报销行：金额（必填）/ 账户（必填）/ 时间 / 备注，全部行内可改 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReimburseRow(
-    record: ReimburseRecordEntity,
-    accounts: List<AccountEntity>,
-    onChange: (ReimburseRecordEntity) -> Unit,
-    onDelete: () -> Unit,
-    isDraft: Boolean = false,
-) {
-    var showAmountDialog by remember { mutableStateOf(false) }
-    var accountMenu by remember { mutableStateOf(false) }
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = { showAmountDialog = true }, modifier = Modifier.weight(1f)) {
-                    Text(
-                        if (record.amount > 0) "${record.amount.toYuan()} 元" else "金额 *",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "删除", modifier = Modifier.size(18.dp))
-                }
-            }
-            // 时间：左日期右时刻两栏
-            DateTimeButtonsRow(
-                millis = record.timeMillis.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                onMillisChange = { onChange(record.copy(timeMillis = it)) },
-                spacing = 6.dp,
-                datePickerTitle = "报销日期",
-                timePickerTitle = "报销时刻",
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ExposedDropdownMenuBox(
-                    expanded = accountMenu,
-                    onExpandedChange = { accountMenu = it },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    OutlinedTextField(
-                        value = accounts.firstOrNull { it.id == record.accountId }?.name ?: "账户 *",
-                        onValueChange = {},
-                        readOnly = true,
-                        isError = !isDraft && record.accountId == 0L,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(accountMenu) },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                    )
-                    ExposedDropdownMenu(expanded = accountMenu, onDismissRequest = { accountMenu = false }) {
-                        accounts.forEach { acc ->
-                            DropdownMenuItem(
-                                text = { Text(acc.name) },
-                                onClick = { onChange(record.copy(accountId = acc.id)); accountMenu = false },
-                            )
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = record.note,
-                    onValueChange = { onChange(record.copy(note = it.take(20))) },
-                    label = { Text("备注") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-
-    if (showAmountDialog) {
-        MoneyInputDialog(
-            title = "报销金额",
-            initialFen = record.amount,
-            allowEmpty = true,
-            onConfirm = { onChange(record.copy(amount = it)); showAmountDialog = false },
-            onDismiss = { showAmountDialog = false },
-        )
-    }
-}
-
-/** 代付区块：按「谁」逐人登记；填了最后一行自动出现新行，只有最后一行允许留空 */
-@Composable
-private fun AdvanceSection(
-    vm: RecordViewModel,
-    s: RecordUiState,
-    snackbar: SnackbarHostState,
-    scope: kotlinx.coroutines.CoroutineScope,
-) {
-    // 尾行草稿（尚未入库）：任何字段有内容即尝试入库，成功后刷新
-    var draft by remember {
-        mutableStateOf(AdvanceRecordEntity(0, 0, "", null, null, null, ""))
-    }
-
-    fun draftHasContent(d: AdvanceRecordEntity) =
-        d.person.isNotBlank() || d.amount != null || d.accountId != null || d.timeMillis != null || d.note.isNotBlank()
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        s.advances.forEach { record ->
-            AdvanceRow(
-                record = record,
-                accounts = s.visibleAccounts,
-                onChange = { updated ->
-                    vm.updateAdvance(updated.copy(id = record.id, transactionId = record.transactionId)) { err ->
-                        scope.launch { err?.let { snackbar.showSnackbar(it) } }
-                    }
-                },
-                onDelete = { vm.deleteAdvance(record) },
-            )
-        }
-        AdvanceRow(
-            record = draft,
-            accounts = s.visibleAccounts,
-            onChange = { updated ->
-                draft = updated
-                if (updated.person.isNotBlank()) {
-                    vm.addAdvance(
-                        person = updated.person,
-                        amount = updated.amount,
-                        accountId = updated.accountId,
-                        timeMillis = updated.timeMillis,
-                        note = updated.note,
-                    ) { err ->
-                        if (err == null) {
-                            draft = AdvanceRecordEntity(0, 0, "", null, null, null, "")
-                        } else {
-                            scope.launch { snackbar.showSnackbar(err) }
-                        }
-                    }
-                }
-            },
-            onDelete = { if (draftHasContent(draft)) draft = AdvanceRecordEntity(0, 0, "", null, null, null, "") },
-            isDraft = true,
-        )
-        Text(
-            "合计代付 ${s.advanceTotal.toYuan()} 元",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-        )
-    }
-}
-
-/** 单条代付人行：谁（必填）+ 金额/时间/账户/备注（可选） */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AdvanceRow(
-    record: AdvanceRecordEntity,
-    accounts: List<AccountEntity>,
-    onChange: (AdvanceRecordEntity) -> Unit,
-    onDelete: () -> Unit,
-    isDraft: Boolean = false,
-) {
-    var showAmountDialog by remember { mutableStateOf(false) }
-    var accountMenu by remember { mutableStateOf(false) }
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        ),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = record.person,
-                    onValueChange = { onChange(record.copy(person = it.take(8))) },
-                    label = { Text("谁 *") },
-                    isError = !isDraft && record.person.isBlank(),
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "删除", modifier = Modifier.size(18.dp))
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { showAmountDialog = true }, modifier = Modifier.weight(1f)) {
-                    Text(
-                        record.amount?.let { "${it.toYuan()} 元" } ?: "金额",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                // 时间：左日期右时刻两栏（未设置时显示占位文字；空间紧凑用短格式）
-                DateTimeButtonsRow(
-                    millis = record.timeMillis ?: System.currentTimeMillis(),
-                    onMillisChange = { onChange(record.copy(timeMillis = it)) },
-                    modifier = Modifier.weight(1.6f),
-                    spacing = 4.dp,
-                    datePickerTitle = "代付日期",
-                    timePickerTitle = "代付时刻",
-                    dateText = record.timeMillis?.formatDay()?.takeLast(5) ?: "日期",
-                    timeText = record.timeMillis?.formatTime()?.substringAfter(' ') ?: "时刻",
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ExposedDropdownMenuBox(
-                    expanded = accountMenu,
-                    onExpandedChange = { accountMenu = it },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    OutlinedTextField(
-                        value = accounts.firstOrNull { it.id == record.accountId }?.name ?: "账户（可选）",
-                        onValueChange = {},
-                        readOnly = true,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(accountMenu) },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable),
-                    )
-                    ExposedDropdownMenu(expanded = accountMenu, onDismissRequest = { accountMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("不关联账户") },
-                            onClick = { onChange(record.copy(accountId = null)); accountMenu = false },
-                        )
-                        accounts.forEach { acc ->
-                            DropdownMenuItem(
-                                text = { Text(acc.name) },
-                                onClick = { onChange(record.copy(accountId = acc.id)); accountMenu = false },
-                            )
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = record.note,
-                    onValueChange = { onChange(record.copy(note = it.take(20))) },
-                    label = { Text("备注") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-    }
-
-    if (showAmountDialog) {
-        MoneyInputDialog(
-            title = "代付金额",
-            initialFen = record.amount ?: 0L,
-            allowEmpty = true,
-            onConfirm = { onChange(record.copy(amount = it.takeIf { v -> v > 0 })); showAmountDialog = false },
-            onDismiss = { showAmountDialog = false },
-        )
-    }
-}
-
-@Composable
-private fun RecordList(
-    rows: List<String>,
-    onAdd: () -> Unit,
-    onDeleteAt: (Int) -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Spacer(modifier = Modifier.weight(1f))
-        TextButton(onClick = onAdd) { Text("添加") }
-    }
-    if (rows.isEmpty()) {
-        Text("无", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-    } else {
-        rows.forEachIndexed { index, row ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(row, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Spacer(modifier = Modifier.weight(1f))
-                IconButton(onClick = { onDeleteAt(index) }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "删除", modifier = Modifier.size(18.dp))
-                }
-            }
-        }
-    }
-}
-
-/** 金额+备注输入对话框（登记收回用）；金额校验：数字/小数点，非法红字提示 */
-@Composable
-private fun AmountNoteDialog(
-    title: String,
-    defaultAmountFen: Long,
-    onConfirm: (amount: Long, note: String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var amountText by remember {
-        mutableStateOf(
-            if (defaultAmountFen <= 0) ""
-            else if (defaultAmountFen % 100 == 0L) "${defaultAmountFen / 100}"
-            else "%.2f".format(defaultAmountFen / 100.0),
-        )
-    }
-    var note by remember { mutableStateOf("") }
-    val amountValid = isValidMoneyText(amountText, allowNegative = false)
-    val amountFen = moneyTextToFen(amountText, allowNegative = false)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("金额（元）") },
-                    singleLine = true,
-                    isError = !amountValid,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (!amountValid) {
-                    Text("只能输入数字和小数点", color = Color(0xFFD32F2F), style = MaterialTheme.typography.labelSmall)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("备注（可选）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = amountFen != null && amountFen > 0,
-                onClick = { amountFen?.let { onConfirm(it, note.trim()) } },
-            ) { Text("确定") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
 
 /** 附件区：缩略图网格 + 相册/拍照添加 */
 @Composable

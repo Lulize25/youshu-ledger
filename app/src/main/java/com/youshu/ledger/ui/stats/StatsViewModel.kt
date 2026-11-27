@@ -47,17 +47,13 @@ data class StatsUiState(
     val bookName: String = "",
     val periodType: PeriodType = PeriodType.MONTH,
     val range: PeriodRange = periodRange(LocalDate.now(), PeriodType.MONTH),
-    // 收支概览（均按业务日期归档；退款/报销/收回归属原支出的那一天）
+    // 收支概览（均按业务日期归档；退款归属原支出的那一天；
+    // v1.7.2 起报销 / A钱条目 = 收入流水，已计入收入合计，不再抵减支出）
     val income: Long = 0,
     val expenseGross: Long = 0,
     val refundSum: Long = 0,
-    val reimburseSum: Long = 0,
     val netExpense: Long = 0,
-    val personalExpense: Long = 0,
-    val advanceSum: Long = 0,
-    val recoveredSum: Long = 0,
     val balance: Long = 0,          // 结余 = 收入 − 净支出
-    val receivableTotal: Long = 0,  // 应收（别人欠我），全账本累计
     // 图表
     val pieSlices: List<CategorySlice> = emptyList(),
     val trend: List<TrendPoint> = emptyList(),
@@ -108,12 +104,8 @@ class StatsViewModel(container: AppContainer) : ViewModel() {
         val income = txnDao.sumByType(bookId, TxnType.INCOME, start, end)
         val expenseGross = txnDao.sumByType(bookId, TxnType.EXPENSE, start, end)
         val refundSum = txnDao.sumRefundsInRange(bookId, start, end)
-        val reimburseSum = txnDao.sumReimbursementsInRange(bookId, start, end)
-        val netExpense = expenseGross - refundSum - reimburseSum
-        val advanceSum = txnDao.sumAdvanceInRange(bookId, start, end)
-        val recoveredSum = txnDao.sumRecoveredInRange(bookId, start, end)
-        val personalExpense = (netExpense - advanceSum).coerceAtLeast(0)
-        val receivableTotal = txnDao.receivableTotal(bookId)
+        // 报销 / A钱条目 = 收入流水，已计入 income；净支出只抵减退款
+        val netExpense = expenseGross - refundSum
 
         // 分类饼图（按支出金额合计，未退款抵减；切片按金额倒序，取前 8 + 其他）
         val categories = categoryRepo.getAll()
@@ -187,13 +179,8 @@ class StatsViewModel(container: AppContainer) : ViewModel() {
             income = income,
             expenseGross = expenseGross,
             refundSum = refundSum,
-            reimburseSum = reimburseSum,
             netExpense = netExpense,
-            personalExpense = personalExpense,
-            advanceSum = advanceSum,
-            recoveredSum = recoveredSum,
             balance = income - netExpense,
-            receivableTotal = receivableTotal,
             pieSlices = slices,
             trend = trend,
             monthKey = monthKey,

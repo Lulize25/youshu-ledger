@@ -1,19 +1,18 @@
 package com.youshu.ledger.data.repository
 
 import com.youshu.ledger.data.local.dao.TransactionDao
-import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
-import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
+import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.data.settings.SettingsStore
 import com.youshu.ledger.domain.balance.BalanceCalculator
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 流水仓库：写入 / 编辑 / 删除流水及其退款、报销、附件，
+ * 流水仓库：写入 / 编辑 / 删除流水及其退款、附件，
  * 并提供「账户当前余额」与统计所需的聚合查询。
  *
  * 余额为派生值（见 BalanceCalculator），因此：
@@ -99,92 +98,27 @@ class TransactionRepository(
         settings.bumpDataVersion()
     }
 
-    /** 追加一条报销记录（规则与退款一致）；[groupId] 非空时组内共享 */
-    suspend fun addReimburse(
-        transactionId: Long,
-        amount: Long,
-        reimburseAccountId: Long,
-        timeMillis: Long,
-        note: String,
-        groupId: Long? = null,
-    ) {
-        dao.upsertReimburse(
-            ReimburseRecordEntity(
-                transactionId = transactionId,
-                amount = amount,
-                accountId = reimburseAccountId,
-                timeMillis = timeMillis,
-                note = note,
-                createdAt = System.currentTimeMillis(),
-                groupId = groupId,
-            ),
-        )
-        settings.bumpDataVersion()
-    }
-
-    /** 删除单条退款 / 报销记录 */
+    /** 删除单条退款记录 */
     suspend fun deleteRefund(record: RefundRecordEntity) {
         dao.deleteRefund(record)
         settings.bumpDataVersion()
     }
 
-    suspend fun deleteReimburse(record: ReimburseRecordEntity) {
-        dao.deleteReimburse(record)
-        settings.bumpDataVersion()
-    }
-
-    // ---------- 代付人明细 ----------
-
-    /** 添加一条代付记录（谁 必填），并同步流水的 advanceAmount 总额缓存 */
-    suspend fun addAdvance(record: AdvanceRecordEntity) {
-        require(record.person.isNotBlank()) { "请填写代付对象（谁）" }
-        dao.upsertAdvance(record)
-        syncAdvanceTotal(record.transactionId)
-        settings.bumpDataVersion()
-    }
-
-    /** 更新代付记录（谁 必填），并同步 advanceAmount 总额缓存 */
-    suspend fun updateAdvance(record: AdvanceRecordEntity) {
-        require(record.person.isNotBlank()) { "请填写代付对象（谁）" }
-        dao.upsertAdvance(record)
-        syncAdvanceTotal(record.transactionId)
-        settings.bumpDataVersion()
-    }
-
-    /** 删除代付记录并同步 advanceAmount */
-    suspend fun deleteAdvance(record: AdvanceRecordEntity) {
-        dao.deleteAdvance(record)
-        syncAdvanceTotal(record.transactionId)
-        settings.bumpDataVersion()
-    }
-
-    /** advanceAmount = Σ 代付记录金额（null 视为 0），供统计与收回上限使用 */
-    private suspend fun syncAdvanceTotal(transactionId: Long) {
-        val detail = dao.getWithDetails(transactionId) ?: return
-        val total = detail.advances.sumOf { it.amount ?: 0L }
-        dao.update(detail.transaction.copy(advanceAmount = total))
-    }
-
     // ---------- 条目组（v1.7） ----------
 
-    /** 组内全部 A钱条（gid = 组号，通常为组内首条支出流水 id） */
-    suspend fun getAdvancesForGroup(gid: Long, txnId: Long) = dao.getAdvancesForGroup(gid, txnId)
-
-    /** 组内全部报销条 */
-    suspend fun getReimbursesForGroup(gid: Long, txnId: Long) = dao.getReimbursesForGroup(gid, txnId)
+    /** 组内全部 A钱条 / 报销条（带角色标记的收入流水） */
+    suspend fun getGroupEntriesByRole(gid: Long, role: TxnRole) = dao.getGroupEntriesByRole(gid, role)
 
     /** 组内其他支出条 */
     suspend fun getGroupExpenses(gid: Long, excludeId: Long) = dao.getGroupExpenses(gid, excludeId)
 
-    /** 可加入本组的流水候选（同类型） */
+    /** 可加入本组的流水候选（同类型普通流水） */
     suspend fun getLinkCandidates(bookId: Long, excludeId: Long, gid: Long, type: TxnType) =
         dao.getLinkCandidates(bookId, excludeId, gid, type)
 
-    /** 更新一条报销记录（组内行内编辑） */
-    suspend fun updateReimburse(record: ReimburseRecordEntity) {
-        dao.upsertReimburse(record)
-        settings.bumpDataVersion()
-    }
+    /** 可标记为 A钱条 / 报销条的候选（同账本普通收入流水） */
+    suspend fun getRoleLinkCandidates(bookId: Long, excludeId: Long, gid: Long) =
+        dao.getRoleLinkCandidates(bookId, excludeId, gid)
 
     /** 把流水的组号置为自身 id（成为组头），返回组号 */
     suspend fun createGroup(txn: TransactionEntity): Long {
@@ -193,7 +127,7 @@ class TransactionRepository(
         return txn.id
     }
 
-    /** 把一条支出流水挂入组 / 移出组 */
+    /** 把一条流水挂入组 / 移出组 */
     suspend fun setTxnGroup(txnId: Long, gid: Long?) {
         dao.getById(txnId)?.let {
             dao.update(it.copy(groupId = gid))
@@ -201,16 +135,15 @@ class TransactionRepository(
         }
     }
 
-    /**
-     * 登记「收回代付」：增加流水的已收回金额（发生即给账户 +金额，计入余额）。
-     * @param amount 本次收回金额（分），调用方需校验 已收回+amount ≤ 代付金额
-     */
-    suspend fun addRecovery(txn: TransactionEntity, amount: Long) {
-        require(amount > 0) { "收回金额必须为正数" }
-        require(txn.recoveredAmount + amount <= txn.advanceAmount) {
-            "收回金额累计不能超过代付金额"
-        }
-        dao.update(txn.copy(recoveredAmount = txn.recoveredAmount + amount))
+    /** 把一条收入流水标记为本组 A钱条 / 报销条（角色 + 组号） */
+    suspend fun markEntryRole(txnId: Long, role: TxnRole, gid: Long) {
+        dao.setTxnRoleAndGroup(txnId, role, gid)
+        settings.bumpDataVersion()
+    }
+
+    /** A钱条 / 报销条移出本组：角色归 NORMAL、组号清空（流水本身保留） */
+    suspend fun clearEntryRole(txnId: Long) {
+        dao.setTxnRoleAndGroup(txnId, TxnRole.NORMAL, null)
         settings.bumpDataVersion()
     }
 

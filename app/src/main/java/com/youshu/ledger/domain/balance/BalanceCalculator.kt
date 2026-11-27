@@ -13,11 +13,11 @@ import com.youshu.ledger.data.local.entity.effectiveTimeMillis
  * 【余额计算】
  * 账户当前余额 = 期初余额
  *   + Σ（生效时刻 ≥ 启用时刻 的流水影响）           —— 补录流水不参与（精确到分钟）
- *   + Σ（已记录的退款 + 报销 + 收回代付）           —— 发生即计入余额，与是否补录无关
+ *   + Σ（已记录的退款）                            —— 发生即计入余额，与是否补录无关
  *
  * 流水影响：
- * - 支出：账户 −金额（全额扣减，含代付部分，资金实际流出）
- * - 收入：账户 +金额
+ * - 支出：账户 −金额（全额扣减）
+ * - 收入：账户 +金额（报销 / A钱条目 = 普通收入流水，自然计入）
  * - 转账：转出 −金额（−手续费），转入 +金额
  *
  * 【补录规则】
@@ -26,10 +26,9 @@ import com.youshu.ledger.data.local.entity.effectiveTimeMillis
  * 未记录时间的流水按当天 23:59、未设置启用时间的账户按当天 00:00 处理（旧数据行为不变）。
  * 由于余额为「派生计算」而非增量记账，修改 / 删除任何流水天然正确回滚余额。
  *
- * 【统计口径】（退款/报销/收回在统计上归属原支出的业务日期）
- * - 净支出 = 金额 − 退款合计 − 报销合计
- * - 个人实际支出 = 金额 − 代付金额 − 退款合计 − 报销合计
- * - 应收（别人欠我）= 代付金额 − 已收回金额
+ * 【统计口径】（退款归属原支出的业务日期；报销 / A钱条目按自身业务日期）
+ * - 净支出 = 金额 − 退款合计 − 报销条目合计（区间归属原支出）
+ * - 个人实际支出 = 净支出（v1.7.2 起不再区分代付垫付口径）
  */
 object BalanceCalculator {
 
@@ -55,7 +54,7 @@ object BalanceCalculator {
 
     /**
      * 计算账户余额（核心入口）。
-     * @param details 该账户涉及的全部流水（含补录）及其退款/报销/附件子表
+     * @param details 该账户涉及的全部流水（含补录）及其退款子表
      * @param asOfMillis 截至时刻（epoch 毫秒）：只统计生效时刻 ≤ asOf 的流水与记录；
      *                   默认 [Long.MAX_VALUE] 即「当前余额」。
      */
@@ -67,25 +66,17 @@ object BalanceCalculator {
         var balance = account.initialBalance
         for (item in details) {
             val t = item.transaction
-            // 涉及 = 转出/转入账户为本账户，或存在指定到账本账户的退款/报销记录
+            // 涉及 = 转出/转入账户为本账户，或存在指定到账本账户的退款记录
             val involves =
                 t.accountId == account.id || t.toAccountId == account.id ||
-                    item.refunds.any { it.accountId == account.id } ||
-                    item.reimbursements.any { it.accountId == account.id }
+                    item.refunds.any { it.accountId == account.id }
             if (!involves) continue
 
-            // 1) 退款 / 报销到账：发生即计入余额（不记为收入流水），含补录流水上的记录；
+            // 1) 退款到账：发生即计入余额（不记为收入流水），含补录流水上的记录；
             //    计入各自的「到账账户」，仅统计发生时间（timeMillis）截至 asOf 的部分
             balance += item.refunds
                 .filter { it.accountId == account.id && it.timeMillis <= asOfMillis }
                 .sumOf { it.amount }
-            balance += item.reimbursements
-                .filter { it.accountId == account.id && it.timeMillis <= asOfMillis }
-                .sumOf { it.amount }
-            // 收回代付无独立时间戳，随流水生效时刻一并截止；只发生在支出账户（资金原路回到代付方）
-            if (t.accountId == account.id && t.effectiveTimeMillis() <= asOfMillis) {
-                balance += t.recoveredAmount
-            }
 
             // 2) 流水影响：仅启用时刻 ≤ 生效时刻 ≤ asOf 才计入 —— 补录流水绝不改变余额
             val effective = t.effectiveTimeMillis()
@@ -100,10 +91,7 @@ object BalanceCalculator {
     fun netExpense(t: TransactionEntity, refundSum: Long, reimburseSum: Long): Long =
         t.amount - refundSum - reimburseSum
 
-    /** 个人实际支出 = 金额 − 代付金额 − 退款合计 − 报销合计 */
+    /** 个人实际支出（v1.7.2 起与净支出同口径：代付垫付不再单独扣减） */
     fun personalExpense(t: TransactionEntity, refundSum: Long, reimburseSum: Long): Long =
-        netExpense(t, refundSum, reimburseSum) - t.advanceAmount
-
-    /** 应收（别人欠我）= 代付金额 − 已收回金额 */
-    fun receivableOf(t: TransactionEntity): Long = t.advanceAmount - t.recoveredAmount
+        netExpense(t, refundSum, reimburseSum)
 }

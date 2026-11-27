@@ -14,6 +14,12 @@ import androidx.room.PrimaryKey
 /** 流水类型：支出 / 收入 / 转账 */
 enum class TxnType { EXPENSE, INCOME, TRANSFER }
 
+/**
+ * 条目角色（v1.7.2 起）：A钱条 / 报销条不再是独立子表，
+ * 而是「带角色标记、关联进条目组（groupId）的收入流水」，与组内其他条目等价可见。
+ */
+enum class TxnRole { NORMAL, ADVANCE, REIMBURSE }
+
 /** 分类类型：收入、支出各一棵独立的分类树 */
 enum class CategoryType { EXPENSE, INCOME }
 
@@ -78,8 +84,8 @@ data class CategoryEntity(
  * 流水。
  * 支出/收入：categoryId + accountId 必填；
  * 转账：accountId（转出）+ toAccountId（转入）必填，fee 为可选手续费（分，从转出账户扣除）。
- * 支出扩展字段：advanceAmount = 代付金额（我替他人支付的部分），recoveredAmount = 已收回金额。
- * 退款 / 报销为独立子表（见 RefundRecordEntity / ReimburseRecordEntity），可部分、可多次。
+ * 退款为独立子表（见 RefundRecordEntity），可部分、可多次；
+ * 报销 / A钱 = 带 [entryRole] 标记并关联进条目组（groupId）的收入流水（v1.7.2 起）。
  */
 @Entity(
     tableName = "transactions",
@@ -105,13 +111,17 @@ data class TransactionEntity(
     val toAccountId: Long?,  // 仅转账：转入账户
     val fee: Long = 0,       // 仅转账：手续费（分），从转出账户扣除
     val project: String = "",     // 项目名称（可选，标记用途/项目维度）
-    val advanceAmount: Long = 0,    // 仅支出：代付金额合计（分，= 代付记录之和，由仓库维护）
-    val recoveredAmount: Long = 0,  // 仅支出：已收回金额（分）
+    @Deprecated("v1.7.2 起 A钱改为角色收入流水，此列恒为 0，仅作历史数据保留")
+    val advanceAmount: Long = 0,
+    @Deprecated("v1.7.2 起收回改为普通收入流水，此列恒为 0，仅作历史数据保留")
+    val recoveredAmount: Long = 0,
     /**
      * 条目组 id（v1.7 起）：一组「支出条 / A钱条 / 报销条」互相可见、可编辑。
      * null = 未入组（旧数据；行为同前，仅本流水可见）。组号 = 组内首个支出条的流水 id。
      */
     val groupId: Long? = null,
+    /** 条目角色（v1.7.2 起）：A钱条 / 报销条 = 关联进条目组的收入流水；NORMAL = 普通流水 */
+    val entryRole: TxnRole = TxnRole.NORMAL,
 )
 
 /**
@@ -136,56 +146,6 @@ data class RefundRecordEntity(
     val timeMillis: Long,   // 退款发生时间（v1.5.0 起；旧数据迁移为录入时间）
     val note: String,
     val createdAt: Long,
-)
-
-/** 报销记录：字段规则与退款一致 */
-@Entity(
-    tableName = "reimburse_records",
-    foreignKeys = [ForeignKey(
-        entity = TransactionEntity::class,
-        parentColumns = ["id"],
-        childColumns = ["transactionId"],
-        onDelete = ForeignKey.CASCADE,
-    )],
-    indices = [Index("transactionId")],
-)
-data class ReimburseRecordEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val transactionId: Long,
-    val amount: Long,
-    val accountId: Long,
-    val timeMillis: Long,
-    val note: String,
-    val createdAt: Long,
-    /** 条目组 id（v1.7 起）：组内任意支出条上可见可编辑；null = 仅挂在本流水 */
-    val groupId: Long? = null,
-)
-
-/**
- * 代付记录：这笔支出替谁付了多少钱（一人一条，可多人）。
- * 仅「谁」必填；金额 / 时间 / 账户 / 备注均可选补充。
- * 不改变余额（资金已随支出流出）；收回登记仍在流水上按总额进行。
- */
-@Entity(
-    tableName = "advance_records",
-    foreignKeys = [ForeignKey(
-        entity = TransactionEntity::class,
-        parentColumns = ["id"],
-        childColumns = ["transactionId"],
-        onDelete = ForeignKey.CASCADE,
-    )],
-    indices = [Index("transactionId")],
-)
-data class AdvanceRecordEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val transactionId: Long,
-    val person: String,       // 代付对象（谁）——必填
-    val amount: Long?,      // 代付金额（分，可选）
-    val accountId: Long?,   // 关联账户（可选）
-    val timeMillis: Long?,  // 发生时间（可选）
-    val note: String,
-    /** 条目组 id（v1.7 起）：组内任意支出条上可见可编辑；null = 仅挂在本流水 */
-    val groupId: Long? = null,
 )
 
 /** 附件：图片保存在 filesDir/attachments/，此处记录相对路径 */
@@ -227,21 +187,13 @@ data class BudgetEntity(
     val amount: Long,        // 预算金额（分）
 )
 
-/** 流水及其子表（退款/报销/代付/附件）的一次性查询结果 */
+/** 流水及其子表（退款/附件）的一次性查询结果 */
 data class TransactionWithDetails(
     @androidx.room.Embedded val transaction: TransactionEntity,
     @androidx.room.Relation(
         parentColumn = "id",
         entityColumn = "transactionId",
     ) val refunds: List<RefundRecordEntity>,
-    @androidx.room.Relation(
-        parentColumn = "id",
-        entityColumn = "transactionId",
-    ) val reimbursements: List<ReimburseRecordEntity>,
-    @androidx.room.Relation(
-        parentColumn = "id",
-        entityColumn = "transactionId",
-    ) val advances: List<AdvanceRecordEntity>,
     @androidx.room.Relation(
         parentColumn = "id",
         entityColumn = "transactionId",

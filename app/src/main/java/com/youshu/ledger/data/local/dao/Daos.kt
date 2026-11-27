@@ -8,16 +8,15 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.BudgetEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
-import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
+import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import kotlinx.coroutines.flow.Flow
 
@@ -183,14 +182,14 @@ interface TransactionDao {
     suspend fun getBalanceRelevant(accountId: Long, enableDate: Long): List<TransactionEntity>
 
     /**
-     * 某账户涉及的全部流水（含补录）：余额计算中退款/报销/收回「发生即计入」，需遍历全部流水。
-     * 包括：转出/转入账户为本账户，或存在退款/报销记录指定到账本账户的流水。
+     * 某账户涉及的全部流水（含补录）：余额计算中退款「发生即计入」，需遍历全部流水。
+     * 包括：转出/转入账户为本账户，或存在退款记录指定到账本账户的流水。
+     * （v1.7.2 起报销 / A钱为普通收入流水，随 INCOME 自然计入，不再额外处理。）
      */
     @Query(
         """SELECT * FROM transactions WHERE
              accountId = :accountId OR toAccountId = :accountId
-             OR EXISTS (SELECT 1 FROM refund_records r WHERE r.transactionId = transactions.id AND r.accountId = :accountId)
-             OR EXISTS (SELECT 1 FROM reimburse_records b WHERE b.transactionId = transactions.id AND b.accountId = :accountId)""",
+             OR EXISTS (SELECT 1 FROM refund_records r WHERE r.transactionId = transactions.id AND r.accountId = :accountId)""",
     )
     suspend fun getAllTouchingAccount(accountId: Long): List<TransactionEntity>
 
@@ -233,8 +232,13 @@ interface TransactionDao {
     @Query("SELECT COALESCE(SUM(amount), 0) FROM refund_records WHERE transactionId = :txnId")
     suspend fun sumRefunds(txnId: Long): Long?
 
-    @Query("SELECT COALESCE(SUM(amount), 0) FROM reimburse_records WHERE transactionId = :txnId")
-    suspend fun sumReimbursements(txnId: Long): Long
+    /** 区间内某角色的收入条目合计（A钱 / 报销条按自身业务日期归档） */
+    @Query(
+        """SELECT COALESCE(SUM(amount), 0) FROM transactions
+             WHERE bookId = :bookId AND type = 'INCOME' AND entryRole = :role
+               AND businessDate >= :start AND businessDate <= :end""",
+    )
+    suspend fun sumIncomeRoleInRange(bookId: Long, role: TxnRole, start: Long, end: Long): Long
 
     /** 区间内的支出，按分类汇总（金额合计；退款/报销通过子表另行汇总） */
     @Query(
@@ -271,35 +275,6 @@ interface TransactionDao {
     )
     suspend fun sumRefundsInRange(bookId: Long, start: Long, end: Long): Long
 
-    /** 区间内报销合计（归属原支出的业务日期） */
-    @Query(
-        """SELECT COALESCE(SUM(r.amount), 0) FROM reimburse_records r
-             INNER JOIN transactions t ON t.id = r.transactionId
-             WHERE t.bookId = :bookId AND t.type = 'EXPENSE'
-               AND t.businessDate >= :start AND t.businessDate <= :end""",
-    )
-    suspend fun sumReimbursementsInRange(bookId: Long, start: Long, end: Long): Long
-
-    /** 区间内代付/已收回合计 */
-    @Query(
-        """SELECT COALESCE(SUM(advanceAmount), 0) FROM transactions
-             WHERE bookId = :bookId AND type = 'EXPENSE' AND businessDate >= :start AND businessDate <= :end""",
-    )
-    suspend fun sumAdvanceInRange(bookId: Long, start: Long, end: Long): Long
-
-    @Query(
-        """SELECT COALESCE(SUM(recoveredAmount), 0) FROM transactions
-             WHERE bookId = :bookId AND type = 'EXPENSE' AND businessDate >= :start AND businessDate <= :end""",
-    )
-    suspend fun sumRecoveredInRange(bookId: Long, start: Long, end: Long): Long
-
-    /** 应收总额（别人欠我）= Σ(代付 − 已收回)，全账本累计 */
-    @Query(
-        """SELECT COALESCE(SUM(advanceAmount - recoveredAmount), 0) FROM transactions
-             WHERE bookId = :bookId AND type = 'EXPENSE'""",
-    )
-    suspend fun receivableTotal(bookId: Long): Long
-
     // ---------- 写入 ----------
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -321,9 +296,6 @@ interface TransactionDao {
     suspend fun upsertRefund(record: RefundRecordEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertReimburse(record: ReimburseRecordEntity): Long
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAttachment(attachment: AttachmentEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -332,46 +304,38 @@ interface TransactionDao {
     @Delete
     suspend fun deleteRefund(record: RefundRecordEntity)
 
-    @Delete
-    suspend fun deleteReimburse(record: ReimburseRecordEntity)
+    // ---------- 条目组（v1.7）：支出条 / A钱条 / 报销条组内共享 ----------
 
-    // ---------- 代付人明细 ----------
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAdvance(record: AdvanceRecordEntity): Long
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAdvances(records: List<AdvanceRecordEntity>)
-
-    @Delete
-    suspend fun deleteAdvance(record: AdvanceRecordEntity)
-
-    @Query("DELETE FROM advance_records WHERE transactionId = :transactionId")
-    suspend fun deleteAdvancesOf(transactionId: Long)
-
-    @Query("DELETE FROM advance_records")
-    suspend fun clearAdvances()
-
-    // ---------- 条目组（v1.7）：A钱 / 报销条组内共享 ----------
-
-    /** 组内全部 A钱条：groupId 命中，或仅挂在当前流水的旧数据 */
-    @Query("SELECT * FROM advance_records WHERE groupId = :gid OR transactionId = :txnId")
-    suspend fun getAdvancesForGroup(gid: Long, txnId: Long): List<AdvanceRecordEntity>
-
-    /** 组内全部报销条：同上 */
-    @Query("SELECT * FROM reimburse_records WHERE groupId = :gid OR transactionId = :txnId")
-    suspend fun getReimbursesForGroup(gid: Long, txnId: Long): List<ReimburseRecordEntity>
+    /** 组内全部 A钱条 / 报销条：带角色标记且组号命中的收入流水 */
+    @Query(
+        """SELECT * FROM transactions
+             WHERE type = 'INCOME' AND entryRole = :role AND groupId = :gid
+             ORDER BY businessDate DESC, id DESC""",
+    )
+    suspend fun getGroupEntriesByRole(gid: Long, role: TxnRole): List<TransactionEntity>
 
     /** 组内其他支出条（不含当前流水） */
     @Query("SELECT * FROM transactions WHERE groupId = :gid AND id != :excludeId AND type = 'EXPENSE'")
     suspend fun getGroupExpenses(gid: Long, excludeId: Long): List<TransactionEntity>
 
-    /** 可加入本组的流水候选：同账本、同类型、非本组 */
+    /** 可加入本组的流水候选：同账本、同类型、普通角色、非本组 */
     @Query(
         """SELECT * FROM transactions WHERE bookId = :bookId AND type = :type
-             AND id != :excludeId AND (groupId IS NULL OR groupId != :gid)""",
+             AND entryRole = 'NORMAL' AND id != :excludeId AND (groupId IS NULL OR groupId != :gid)""",
     )
     suspend fun getLinkCandidates(bookId: Long, excludeId: Long, gid: Long, type: TxnType): List<TransactionEntity>
+
+    /** 可标记为 A钱条 / 报销条的候选：同账本普通收入流水、非本组 */
+    @Query(
+        """SELECT * FROM transactions WHERE bookId = :bookId AND type = 'INCOME'
+             AND entryRole = 'NORMAL' AND id != :excludeId AND (groupId IS NULL OR groupId != :gid)
+             ORDER BY businessDate DESC, id DESC""",
+    )
+    suspend fun getRoleLinkCandidates(bookId: Long, excludeId: Long, gid: Long): List<TransactionEntity>
+
+    /** 设置流水的条目角色与组号（A钱条 / 报销条 = 角色收入流水；NORMAL 且组号 null = 移出） */
+    @Query("UPDATE transactions SET entryRole = :role, groupId = :gid WHERE id = :txnId")
+    suspend fun setTxnRoleAndGroup(txnId: Long, role: TxnRole, gid: Long?)
 
     @Delete
     suspend fun deleteAttachment(attachment: AttachmentEntity)

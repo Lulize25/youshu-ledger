@@ -108,7 +108,6 @@ class AccountDetailViewModel(
         accountName = "",
         toAccountName = null,
         refundSum = refunds.sumOf { it.amount },
-        reimburseSum = reimbursements.sumOf { it.amount },
         attachmentCount = attachments.size,
         backfill = transaction.type != TxnType.TRANSFER &&
             transaction.effectiveTimeMillis() < (ui.value.account?.effectiveEnableMillis() ?: Long.MIN_VALUE),

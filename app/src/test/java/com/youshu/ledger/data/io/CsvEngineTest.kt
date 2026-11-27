@@ -3,7 +3,6 @@ package com.youshu.ledger.data.io
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
-import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
@@ -26,11 +25,8 @@ class CsvEngineTest {
             id = 1, bookId = 1, type = TxnType.EXPENSE, amount = 100_00,
             businessDate = day, createdAt = day, note = "午餐",
             categoryId = 5, accountId = 2, toAccountId = null,
-            advanceAmount = 30_00, recoveredAmount = 10_00,
         ),
         refunds = listOf(RefundRecordEntity(1, 1, 20_00, accountId = 2, timeMillis = day, note = "", createdAt = day)),
-        reimbursements = listOf(ReimburseRecordEntity(1, 1, 10_00, accountId = 2, timeMillis = day, note = "", createdAt = day)),
-        advances = emptyList(),
         attachments = listOf(AttachmentEntity(1, 1, "attachments/1/a.jpg")),
     )
 
@@ -52,9 +48,10 @@ class CsvEngineTest {
         assertEquals("100.00", row.get("金额"))
         assertEquals("餐饮/正餐", row.get("分类（完整路径）"))
         assertEquals("20.00", row.get("退款合计"))
-        assertEquals("10.00", row.get("报销合计"))
-        assertEquals("30.00", row.get("代付"))
-        assertEquals("10.00", row.get("已收回"))
+        // v1.7.2 起：报销/代付/已收回为角色收入流水，这三列兼容保留、恒为 0
+        assertEquals("0.00", row.get("报销合计"))
+        assertEquals("0.00", row.get("代付"))
+        assertEquals("0.00", row.get("已收回"))
         assertEquals("1", row.get("附件数量"))
     }
 

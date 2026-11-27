@@ -1,15 +1,14 @@
 package com.youshu.ledger.data.io
 
 import com.youshu.ledger.data.local.entity.AccountEntity
-import com.youshu.ledger.data.local.entity.AdvanceRecordEntity
 import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.BookEntity
 import com.youshu.ledger.data.local.entity.BudgetEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
-import com.youshu.ledger.data.local.entity.ReimburseRecordEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
+import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import kotlinx.serialization.Serializable
 
@@ -60,9 +59,11 @@ data class TransactionDto(
     val advanceAmount: Long, val recoveredAmount: Long,
     val timeOfDay: Int = -1,              // v3 起：当天分钟数；旧备份无此字段，默认 -1
     val project: String = "",             // v6 起：项目名称；旧备份无此字段
+    val groupId: Long? = null,            // v1.7 起：条目组号；旧备份无此字段
+    val entryRole: String = "NORMAL",     // v1.7.2 起：条目角色（A钱条/报销条）；旧备份默认 NORMAL
     val refunds: List<RefundDto> = emptyList(),
-    val reimbursements: List<ReimburseDto> = emptyList(),
-    val advances: List<AdvanceDto> = emptyList(),   // v6 起：代付人明细
+    val reimbursements: List<ReimburseDto> = emptyList(),  // v1.7.1 及以前的报销子表，恢复时转为报销条目流水
+    val advances: List<AdvanceDto> = emptyList(),   // v1.7.1 及以前的代付子表，恢复时转为 A钱条目流水
     val attachments: List<String> = emptyList(),
 )
 
@@ -118,21 +119,41 @@ fun RefundDto.toEntity(txnId: Long, defaultAccountId: Long) = RefundRecordEntity
     note, createdAt,
 )
 
-fun ReimburseRecordEntity.toDto() = ReimburseDto(id, amount, note, createdAt, accountId, timeMillis)
-fun ReimburseDto.toEntity(txnId: Long, defaultAccountId: Long) = ReimburseRecordEntity(
-    id, txnId, amount,
-    accountId = accountId ?: defaultAccountId,
-    timeMillis = timeMillis ?: createdAt,
-    note, createdAt,
-)
-
-fun AdvanceRecordEntity.toDto() = AdvanceDto(id, person, amount, accountId, timeMillis, note)
-fun AdvanceDto.toEntity(txnId: Long) = AdvanceRecordEntity(
-    id, txnId, person, amount, accountId, timeMillis, note,
-)
-
 fun BudgetEntity.toDto() = BudgetDto(id, bookId, categoryId, yearMonth, amount)
 fun BudgetDto.toEntity() = BudgetEntity(id, bookId, categoryId, yearMonth, amount)
+
+/**
+ * v1.7.1 及更早备份的报销子表 → 报销条目流水（REIMBURSE 收入流水，挂入宿主条目组）。
+ * 与数据库迁移 MIGRATION_10_11 同一口径。
+ */
+fun ReimburseDto.toRoleTxn(host: TransactionDto): TransactionEntity {
+    val millis = timeMillis ?: createdAt
+    return TransactionEntity(
+        id = 0, bookId = host.bookId, type = TxnType.INCOME, amount = amount,
+        businessDate = millis / 86400000 * 86400000,
+        timeOfDay = ((millis % 86400000) / 60000).toInt(),
+        createdAt = createdAt, note = note, categoryId = null,
+        accountId = accountId ?: host.accountId, toAccountId = null, fee = 0,
+        groupId = host.groupId ?: host.id,
+        entryRole = TxnRole.REIMBURSE,
+    )
+}
+
+/** v1.7.1 及更早备份的代付子表 → A钱条目流水（ADVANCE 收入流水；「谁」并入备注） */
+fun AdvanceDto.toRoleTxn(host: TransactionDto): TransactionEntity {
+    val millis = timeMillis
+    return TransactionEntity(
+        id = 0, bookId = host.bookId, type = TxnType.INCOME, amount = amount ?: 0,
+        businessDate = millis?.let { it / 86400000 * 86400000 } ?: host.businessDate,
+        timeOfDay = millis?.let { ((it % 86400000) / 60000).toInt() } ?: -1,
+        createdAt = host.createdAt,
+        note = person + if (note.isNotBlank()) "：$note" else "",
+        categoryId = null,
+        accountId = accountId ?: host.accountId, toAccountId = null, fee = 0,
+        groupId = host.groupId ?: host.id,
+        entryRole = TxnRole.ADVANCE,
+    )
+}
 
 /**
  * 附件路径重映射到本机私有目录：

@@ -7,6 +7,7 @@ import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
+import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.data.repository.BookRepository
 import com.youshu.ledger.data.repository.CategoryRepository
@@ -28,6 +29,7 @@ import java.io.StringWriter
  * 列定义（UTF-8 带 BOM）：
  * 账本、类型、业务日期、录入时间、分类（完整路径）、账户、对方账户（转账）、
  * 金额、备注、退款合计、报销合计、代付、已收回、附件数量
+ * （v1.7.2 起报销/A钱为角色收入流水，「报销合计/代付/已收回」三列仅兼容保留，恒为 0）
  *
  * 重复检测：同一账本内 业务日期+金额+账户+类型 相同视为重复，默认跳过，可选覆盖。
  */
@@ -72,9 +74,9 @@ object CsvEngine {
                 t.amount.toYuan(),
                 t.note,
                 d.refunds.sumOf { it.amount }.toYuan(),
-                d.reimbursements.sumOf { it.amount }.toYuan(),
-                t.advanceAmount.toYuan(),
-                t.recoveredAmount.toYuan(),
+                "0.00", // 报销合计：v1.7.2 起为角色收入流水，单独成行导出
+                "0.00", // 代付：同上，兼容保留
+                "0.00", // 已收回：同上，兼容保留
                 d.attachments.size,
             )
         }
@@ -288,11 +290,34 @@ object CsvEngine {
                         recoveredAmount = col(Field.RECOVERED)?.replace(",", "")?.toDoubleOrNull()?.let { (it * 100).toLong() } ?: 0,
                     ),
                 )
-                // 退款/报销合计作为一条汇总记录导入（与原支出同账户）
+                // 退款合计作为一条汇总退款记录导入（与原支出同账户）
                 col(Field.REFUND)?.replace(",", "")?.toDoubleOrNull()?.let { if (it > 0) (it * 100).toLong() else null }
                     ?.let { txnDao.upsertRefund(com.youshu.ledger.data.local.entity.RefundRecordEntity(0, txnId, it, account.id, createdAt, "CSV 导入", System.currentTimeMillis())) }
+                // 报销合计 / 代付 → 角色条目流水（v1.7.2 起：REIMBURSE / ADVANCE 收入流水，挂入本条组）
                 col(Field.REIMBURSE)?.replace(",", "")?.toDoubleOrNull()?.let { if (it > 0) (it * 100).toLong() else null }
-                    ?.let { txnDao.upsertReimburse(com.youshu.ledger.data.local.entity.ReimburseRecordEntity(0, txnId, it, account.id, createdAt, "CSV 导入", System.currentTimeMillis())) }
+                    ?.let { amt ->
+                        txnDao.upsert(
+                            TransactionEntity(
+                                id = 0, bookId = book.id, type = TxnType.INCOME, amount = amt,
+                                businessDate = businessDate, createdAt = createdAt,
+                                note = "CSV 导入报销", categoryId = null,
+                                accountId = account.id, toAccountId = null, fee = 0,
+                                groupId = txnId, entryRole = TxnRole.REIMBURSE,
+                            ),
+                        )
+                    }
+                col(Field.ADVANCE)?.replace(",", "")?.toDoubleOrNull()?.let { if (it > 0) (it * 100).toLong() else null }
+                    ?.let { amt ->
+                        txnDao.upsert(
+                            TransactionEntity(
+                                id = 0, bookId = book.id, type = TxnType.INCOME, amount = amt,
+                                businessDate = businessDate, createdAt = createdAt,
+                                note = "CSV 导入A钱", categoryId = null,
+                                accountId = account.id, toAccountId = null, fee = 0,
+                                groupId = txnId, entryRole = TxnRole.ADVANCE,
+                            ),
+                        )
+                    }
                 success++
             }.onFailure { e ->
                 failed++

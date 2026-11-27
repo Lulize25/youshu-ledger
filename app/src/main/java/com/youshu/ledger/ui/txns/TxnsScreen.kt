@@ -50,6 +50,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.domain.util.formatTime
+import com.youshu.ledger.domain.util.toLocalDate
 import com.youshu.ledger.domain.util.weekDayCn
 import com.youshu.ledger.ui.common.BookTopBar
 import com.youshu.ledger.ui.common.CategoryBadge
@@ -98,26 +99,18 @@ fun TxnsScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            // 汇总条（压缩为一行小字；数字与标签同字号同基线）
-            Row(
+            // 页面总计：按当前筛选范围统计，留出呼吸空间，与下面的年月小计区分。
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("收入 ", style = MaterialTheme.typography.bodySmall)
-                MoneyText(
-                    state.totalIncome,
-                    color = MaterialTheme.colorScheme.income,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text("支出 ", style = MaterialTheme.typography.bodySmall)
-                MoneyText(
-                    state.totalExpense,
-                    color = MaterialTheme.colorScheme.expense,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                Text("当前流水合计", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    TotalAmount("收入", state.totalIncome, MaterialTheme.colorScheme.income)
+                    TotalAmount("支出", state.totalExpense, MaterialTheme.colorScheme.expense)
+                }
             }
 
             if (showFilters || state.filters.active) {
@@ -133,8 +126,41 @@ fun TxnsScreen(
                     Text("暂无流水，点击右下角「记一笔」开始记账", color = MaterialTheme.colorScheme.outline)
                 }
             } else {
+                val monthTotals = state.groups
+                    .flatMap { it.items }
+                    .groupBy { it.businessDate.toLocalDate().withDayOfMonth(1) }
+                    .mapValues { (_, items) ->
+                        items.filter { it.type == TxnType.INCOME }.sumOf { it.amount } to
+                            items.filter { it.type == TxnType.EXPENSE }.sumOf { it.amount }
+                    }
+                val yearTotals = monthTotals.entries.groupBy { it.key.year }.mapValues { (_, months) ->
+                    months.sumOf { it.value.first } to months.sumOf { it.value.second }
+                }
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    var previousMonth: java.time.YearMonth? = null
+                    var previousYear: Int? = null
                     state.groups.forEach { group ->
+                        val month = java.time.YearMonth.from(group.date)
+                        if (month != previousMonth) {
+                            val showYearTotal = previousYear != month.year
+                            val monthTotal = monthTotals[month.atDay(1)] ?: (0L to 0L)
+                            val yearTotal = yearTotals[month.year] ?: (0L to 0L)
+                            item(key = "period_${month}") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    if (showYearTotal) {
+                                        PeriodTotal("${month.year}年合计", yearTotal.first, yearTotal.second)
+                                    }
+                                    PeriodTotal("${month.year}年${month.monthValue}月合计", monthTotal.first, monthTotal.second)
+                                }
+                            }
+                            previousMonth = month
+                            previousYear = month.year
+                        }
                         item(key = "header_${group.date}") {
                             DayHeader(group)
                         }
@@ -163,6 +189,29 @@ fun TxnsScreen(
             },
             onDismiss = { pendingDelete = null },
         )
+    }
+}
+
+@Composable
+private fun TotalAmount(label: String, amount: Long, color: androidx.compose.ui.graphics.Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        MoneyText(amount, color = color, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun PeriodTotal(label: String, income: Long, expense: Long) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            MoneyText(income, color = MaterialTheme.colorScheme.income, style = MaterialTheme.typography.labelMedium)
+            MoneyText(expense, color = MaterialTheme.colorScheme.expense, style = MaterialTheme.typography.labelMedium)
+        }
     }
 }
 

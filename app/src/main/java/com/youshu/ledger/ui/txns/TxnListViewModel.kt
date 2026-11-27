@@ -123,7 +123,6 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
             accountName = account?.name ?: "未知账户",
             toAccountName = transaction.toAccountId?.let { accById[it]?.name },
             refundSum = refunds.sumOf { it.amount },
-            reimburseSum = reimbursements.sumOf { it.amount },
             attachmentCount = attachments.size,
             backfill = backfill,
         )
@@ -131,7 +130,7 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
 
     /**
      * 计算每笔流水「经过这一步之后」各账户的余额：
-     * 把账本内全部流水按账户展开成事件流（流水影响 / 退款 / 报销 / 收回代付，各带发生时刻），
+     * 把账本内全部流水按账户展开成事件流（流水影响 / 退款，各带发生时刻），
      * 再对每个账户做按时间排序的前缀和；某笔流水之后的余额 = 期初 + 时刻 ≤ 该流水生效时刻的事件合计。
      * v1.6 起对每笔流水返回**全部账户**的余额（流水页展开区全量展示）。
      */
@@ -156,8 +155,6 @@ class TxnListViewModel(container: AppContainer) : ViewModel() {
                 }
             }
             d.refunds.forEach { addEvent(it.accountId, it.timeMillis, it.amount) }
-            d.reimbursements.forEach { addEvent(it.accountId, it.timeMillis, it.amount) }
-            addEvent(t.accountId, eff, t.recoveredAmount) // 收回代付（发生即计入）
         }
 
         // 每个账户：按时刻排序 + 前缀和，balanceAt(acc, t) = 期初 + Σ(时刻 ≤ t)
