@@ -85,10 +85,9 @@ fun TxnsScreen(
 
     Scaffold(
         topBar = {
-            // 一根顶栏：最顶部是账本切换（大字），下方是页面标题
+            // 顶栏只保留账本切换，右侧筛选按钮
             BookTopBar(
                 container = container,
-                title = "流水",
                 actions = {
                     IconButton(onClick = { showFilters = !showFilters }) {
                         Icon(Icons.Default.Search, contentDescription = "筛选")
@@ -99,17 +98,26 @@ fun TxnsScreen(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
-            // 汇总条（压缩为一行小字）
+            // 汇总条（压缩为一行小字；数字与标签同字号同基线）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text("收入 ", style = MaterialTheme.typography.bodySmall)
-                MoneyText(state.totalIncome, color = MaterialTheme.colorScheme.income)
+                MoneyText(
+                    state.totalIncome,
+                    color = MaterialTheme.colorScheme.income,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Text("支出 ", style = MaterialTheme.typography.bodySmall)
-                MoneyText(state.totalExpense, color = MaterialTheme.colorScheme.expense)
+                MoneyText(
+                    state.totalExpense,
+                    color = MaterialTheme.colorScheme.expense,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
 
             if (showFilters || state.filters.active) {

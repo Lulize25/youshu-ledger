@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,16 +60,34 @@ import com.youshu.ledger.domain.util.toYuan
 import com.youshu.ledger.domain.util.toYuanWithThousands
 import kotlinx.coroutines.launch
 
-/** 金额文本（分 → 元，两位小数） */
+/**
+ * 金额文本（分 → 元，两位小数）。
+ * [style] 传入时完全沿用该样式（用于与同行标签同字号，保证基线对齐）。
+ */
 @Composable
-fun MoneyText(fen: Long, modifier: Modifier = Modifier, color: Color = Color.Unspecified, big: Boolean = false) {
-    Text(
-        text = if (big) fen.toYuanWithThousands() else fen.toYuan(),
-        modifier = modifier,
-        color = color,
-        fontWeight = if (big) FontWeight.Bold else FontWeight.Normal,
-        fontSize = if (big) 22.sp else 14.sp,
-    )
+fun MoneyText(
+    fen: Long,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    big: Boolean = false,
+    style: TextStyle? = null,
+) {
+    if (style != null) {
+        Text(
+            text = if (big) fen.toYuanWithThousands() else fen.toYuan(),
+            modifier = modifier,
+            color = color,
+            style = style,
+        )
+    } else {
+        Text(
+            text = if (big) fen.toYuanWithThousands() else fen.toYuan(),
+            modifier = modifier,
+            color = color,
+            fontWeight = if (big) FontWeight.Bold else FontWeight.Normal,
+            fontSize = if (big) 22.sp else 14.sp,
+        )
+    }
 }
 
 /** 分类图标：圆形底色 + 圆内 1~2 个文字（需求规定的图标方案） */
@@ -351,30 +370,22 @@ fun BookSwitcherBar(
 }
 
 /**
- * 主页面顶栏：一根 TopAppBar，账本行 + 页面标题上下紧邻（低高度、顶部对齐）。
+ * 主页面顶栏：只保留账本切换行（无页面标题），右侧可放操作按钮。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookTopBar(
     container: com.youshu.ledger.data.AppContainer,
-    title: String,
     onBack: (() -> Unit)? = null,
     actions: @Composable () -> Unit = {},
 ) {
     TopAppBar(
-        expandedHeight = 60.dp, // 顶栏整体压低，可再调到 56.dp
         title = {
             Column(
-                modifier = Modifier
-                    .fillMaxHeight()   // 关键：撑满顶栏，内容从顶部往下排，不再被居中压下去
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp), // 两行之间的缝隙，0~4dp 微调
+                modifier = Modifier.fillMaxHeight(),
+                verticalArrangement = Arrangement.Center,
             ) {
                 BookSwitcherRow(container, MaterialTheme.typography.titleMedium)
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium, // 比默认 titleLarge 小一号，更省高度
-                )
             }
         },
         navigationIcon = {

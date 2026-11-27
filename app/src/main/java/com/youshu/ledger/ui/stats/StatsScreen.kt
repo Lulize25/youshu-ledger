@@ -64,8 +64,8 @@ fun StatsScreen(container: AppContainer) {
 
     Scaffold(
         topBar = {
-            // 一根顶栏：最顶部是账本切换（大字），下方是页面标题
-            BookTopBar(container = container, title = "统计")
+            // 顶栏只保留账本切换
+            BookTopBar(container = container)
         },
     ) { padding ->
         Column(

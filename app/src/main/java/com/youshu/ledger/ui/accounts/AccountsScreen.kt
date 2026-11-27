@@ -229,8 +229,8 @@ fun AccountsScreen(container: AppContainer, onOpen: (Long) -> Unit) {
 
     Scaffold(
         topBar = {
-            // 一根顶栏：最顶部是账本切换（大字），下方是页面标题
-            BookTopBar(container = container, title = "账户")
+            // 顶栏只保留账本切换
+            BookTopBar(container = container)
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { showCreate = true }) {
