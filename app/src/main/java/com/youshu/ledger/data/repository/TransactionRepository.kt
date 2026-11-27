@@ -176,9 +176,15 @@ class TransactionRepository(
     /** 组内其他支出条 */
     suspend fun getGroupExpenses(gid: Long, excludeId: Long) = dao.getGroupExpenses(gid, excludeId)
 
-    /** 可加入本组的支出流水候选 */
-    suspend fun getExpenseLinkCandidates(bookId: Long, excludeId: Long, gid: Long) =
-        dao.getExpenseLinkCandidates(bookId, excludeId, gid)
+    /** 可加入本组的流水候选（同类型） */
+    suspend fun getLinkCandidates(bookId: Long, excludeId: Long, gid: Long, type: TxnType) =
+        dao.getLinkCandidates(bookId, excludeId, gid, type)
+
+    /** 更新一条报销记录（组内行内编辑） */
+    suspend fun updateReimburse(record: ReimburseRecordEntity) {
+        dao.upsertReimburse(record)
+        settings.bumpDataVersion()
+    }
 
     /** 把流水的组号置为自身 id（成为组头），返回组号 */
     suspend fun createGroup(txn: TransactionEntity): Long {

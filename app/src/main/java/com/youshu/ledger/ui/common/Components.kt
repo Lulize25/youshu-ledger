@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -371,32 +374,37 @@ fun BookSwitcherBar(
 
 /**
  * 主页面顶栏：只保留账本切换行（无页面标题），右侧可放操作按钮。
+ * 不用 TopAppBar——自定义 Surface+Row，高度完全由内容决定（无默认最小高度/垂直内边距），
+ * 上方只保留状态栏间距，消除「账本文字上面的大空格」。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookTopBar(
     container: com.youshu.ledger.data.AppContainer,
     onBack: (() -> Unit)? = null,
     actions: @Composable () -> Unit = {},
 ) {
-    TopAppBar(
-        title = {
-            Column(
-                modifier = Modifier.fillMaxHeight(),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                BookSwitcherRow(container, MaterialTheme.typography.titleMedium)
-            }
-        },
-        navigationIcon = {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 3.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (onBack != null) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
             }
-        },
-        actions = { actions() },
-    )
+            Box(modifier = Modifier.weight(1f)) {
+                BookSwitcherRow(container, MaterialTheme.typography.titleMedium)
+            }
+            actions()
+        }
+    }
 }
 
 /** 通用确认对话框 */

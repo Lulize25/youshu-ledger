@@ -366,12 +366,12 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE groupId = :gid AND id != :excludeId AND type = 'EXPENSE'")
     suspend fun getGroupExpenses(gid: Long, excludeId: Long): List<TransactionEntity>
 
-    /** 可加入本组的支出流水候选：同账本、非本组 */
+    /** 可加入本组的流水候选：同账本、同类型、非本组 */
     @Query(
-        """SELECT * FROM transactions WHERE bookId = :bookId AND type = 'EXPENSE'
+        """SELECT * FROM transactions WHERE bookId = :bookId AND type = :type
              AND id != :excludeId AND (groupId IS NULL OR groupId != :gid)""",
     )
-    suspend fun getExpenseLinkCandidates(bookId: Long, excludeId: Long, gid: Long): List<TransactionEntity>
+    suspend fun getLinkCandidates(bookId: Long, excludeId: Long, gid: Long, type: TxnType): List<TransactionEntity>
 
     @Delete
     suspend fun deleteAttachment(attachment: AttachmentEntity)

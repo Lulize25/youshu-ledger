@@ -160,6 +160,17 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
     }
 }
 
+/**
+ * v9 → v10：旧版（v1.7.0 之前）的 A钱 / 报销记录正式融入条目组——
+ * groupId 回填为宿主流水 id（组号），使其与新建条目一样组内等价可见。
+ */
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("UPDATE `advance_records` SET `groupId` = `transactionId` WHERE `groupId` IS NULL")
+        db.execSQL("UPDATE `reimburse_records` SET `groupId` = `transactionId` WHERE `groupId` IS NULL")
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -232,7 +243,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -259,7 +270,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                        MIGRATION_8_9,
+                        MIGRATION_8_9, MIGRATION_9_10,
                     )
                     .build()
                     .also { instance = it }

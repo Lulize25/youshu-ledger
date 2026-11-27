@@ -341,7 +341,7 @@ class RecordViewModel(
             accountId = s.accountId ?: return "请选择账户",
             toAccountId = if (s.type == TxnType.TRANSFER) s.toAccountId else null,
             fee = if (s.type == TxnType.TRANSFER) s.feeFen else 0,
-            advanceAmount = if (s.type == TxnType.EXPENSE) s.advanceTotal else 0,
+            advanceAmount = if (s.type != TxnType.TRANSFER) s.advanceTotal else 0,
             recoveredAmount = base?.recoveredAmount ?: 0,
             groupId = base?.groupId,
         )
@@ -457,6 +457,17 @@ class RecordViewModel(
         }
     }
 
+    /** 更新报销记录（组内任一流水上行内修改；旧数据自动纳入当前组） */
+    fun updateReimburse(record: ReimburseRecordEntity, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val gid = currentGroupOrSelf()
+            val fixed = if (record.groupId == null && gid != null) record.copy(groupId = gid) else record
+            runCatching { txnRepo.updateReimburse(fixed) }
+                .onSuccess { reloadDetails(); onResult(null) }
+                .onFailure { onResult(it.message) }
+        }
+    }
+
     fun deleteRefund(record: RefundRecordEntity) {
         viewModelScope.launch {
             txnRepo.deleteRefund(record)
@@ -488,14 +499,14 @@ class RecordViewModel(
         return gid
     }
 
-    /** 加载可加入本组的支出流水候选（打开选择对话框时调用） */
+    /** 加载可加入本组的流水候选（打开选择对话框时调用；会先自动保存新建流水并建组） */
     fun loadLinkCandidates() {
         viewModelScope.launch {
+            val id = ensureSaved() ?: return@launch
             val s = _ui.value
-            val id = s.editingId ?: return@launch
             val gid = ensureGroup() ?: return@launch
-            _ui.value = s.copy(
-                linkCandidates = txnRepo.getExpenseLinkCandidates(s.bookId, id, gid),
+            _ui.value = _ui.value.copy(
+                linkCandidates = txnRepo.getLinkCandidates(s.bookId, id, gid, s.type),
             )
         }
     }

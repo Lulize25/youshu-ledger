@@ -127,7 +127,8 @@ fun TxnRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // 顶部对齐：图标固定在展开前的位置，不随展开内容变高而移动
+        Row(verticalAlignment = Alignment.Top) {
             CategoryBadge(item.category, size = 44.dp)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
