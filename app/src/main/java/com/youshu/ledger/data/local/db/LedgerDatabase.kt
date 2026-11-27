@@ -202,7 +202,7 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
                 "ELSE (a.`timeMillis` / 86400000) * 86400000 END, " +
                 "CASE WHEN a.`timeMillis` IS NULL THEN -1 " +
                 "ELSE CAST((a.`timeMillis` % 86400000) / 60000 AS INTEGER) END, " +
-                "a.`createdAt`, " +
+                "t.`createdAt`, " +
                 "a.`person` || CASE WHEN a.`note` IS NOT NULL AND a.`note` != '' THEN '：' || a.`note` ELSE '' END, " +
                 "NULL, COALESCE(a.`accountId`, t.`accountId`), NULL, 0, '', 0, 0, a.`groupId`, 'ADVANCE' " +
                 "FROM `advance_records` a INNER JOIN `transactions` t ON t.`id` = a.`transactionId`",
