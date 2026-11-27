@@ -107,6 +107,11 @@ data class TransactionEntity(
     val project: String = "",     // 项目名称（可选，标记用途/项目维度）
     val advanceAmount: Long = 0,    // 仅支出：代付金额合计（分，= 代付记录之和，由仓库维护）
     val recoveredAmount: Long = 0,  // 仅支出：已收回金额（分）
+    /**
+     * 条目组 id（v1.7 起）：一组「支出条 / A钱条 / 报销条」互相可见、可编辑。
+     * null = 未入组（旧数据；行为同前，仅本流水可见）。组号 = 组内首个支出条的流水 id。
+     */
+    val groupId: Long? = null,
 )
 
 /**
@@ -152,6 +157,8 @@ data class ReimburseRecordEntity(
     val timeMillis: Long,
     val note: String,
     val createdAt: Long,
+    /** 条目组 id（v1.7 起）：组内任意支出条上可见可编辑；null = 仅挂在本流水 */
+    val groupId: Long? = null,
 )
 
 /**
@@ -177,6 +184,8 @@ data class AdvanceRecordEntity(
     val accountId: Long?,   // 关联账户（可选）
     val timeMillis: Long?,  // 发生时间（可选）
     val note: String,
+    /** 条目组 id（v1.7 起）：组内任意支出条上可见可编辑；null = 仅挂在本流水 */
+    val groupId: Long? = null,
 )
 
 /** 附件：图片保存在 filesDir/attachments/，此处记录相对路径 */

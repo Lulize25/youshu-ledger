@@ -352,6 +352,27 @@ interface TransactionDao {
     @Query("DELETE FROM advance_records")
     suspend fun clearAdvances()
 
+    // ---------- 条目组（v1.7）：A钱 / 报销条组内共享 ----------
+
+    /** 组内全部 A钱条：groupId 命中，或仅挂在当前流水的旧数据 */
+    @Query("SELECT * FROM advance_records WHERE groupId = :gid OR transactionId = :txnId")
+    suspend fun getAdvancesForGroup(gid: Long, txnId: Long): List<AdvanceRecordEntity>
+
+    /** 组内全部报销条：同上 */
+    @Query("SELECT * FROM reimburse_records WHERE groupId = :gid OR transactionId = :txnId")
+    suspend fun getReimbursesForGroup(gid: Long, txnId: Long): List<ReimburseRecordEntity>
+
+    /** 组内其他支出条（不含当前流水） */
+    @Query("SELECT * FROM transactions WHERE groupId = :gid AND id != :excludeId AND type = 'EXPENSE'")
+    suspend fun getGroupExpenses(gid: Long, excludeId: Long): List<TransactionEntity>
+
+    /** 可加入本组的支出流水候选：同账本、非本组 */
+    @Query(
+        """SELECT * FROM transactions WHERE bookId = :bookId AND type = 'EXPENSE'
+             AND id != :excludeId AND (groupId IS NULL OR groupId != :gid)""",
+    )
+    suspend fun getExpenseLinkCandidates(bookId: Long, excludeId: Long, gid: Long): List<TransactionEntity>
+
     @Delete
     suspend fun deleteAttachment(attachment: AttachmentEntity)
 }

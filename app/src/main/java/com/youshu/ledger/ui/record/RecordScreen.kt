@@ -680,6 +680,7 @@ private fun ExpenseExtensionCard(
     var showRefundDialog by remember { mutableStateOf(false) }
     var showReimburseDialog by remember { mutableStateOf(false) }
     var showRecoveryDialog by remember { mutableStateOf(false) }
+    var showLinkDialog by remember { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -743,7 +744,83 @@ private fun ExpenseExtensionCard(
                     }
                 }
             }
+
+            // ---- 关联支出条（条目组）：A钱/报销条添加后自动组组，组内任一流水等价可见 ----
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("关联支出条（本组）", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.weight(1f))
+                TextButton(onClick = { vm.loadLinkCandidates(); showLinkDialog = true }) { Text("添加") }
+            }
+            if (s.groupExpenses.isEmpty()) {
+                Text(
+                    "暂无。添加 A钱 / 报销条后自动组成本组；组内条目在任一流水上都能查看和修改",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            } else {
+                s.groupExpenses.forEach { t ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = buildString {
+                                append("${t.amount.toYuan()} 元 · ")
+                                append(s.accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
+                                append(" · ")
+                                append(t.businessDate.formatDay())
+                                if (t.note.isNotBlank()) append("（${t.note}）")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { vm.unlinkExpenseFromGroup(t.id) }) {
+                            Icon(Icons.Default.Close, contentDescription = "移出本组", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    // 选择已有支出流水加入本组
+    if (showLinkDialog) {
+        AlertDialog(
+            onDismissRequest = { showLinkDialog = false },
+            title = { Text("添加支出条到本组") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    if (s.linkCandidates.isEmpty()) {
+                        Text("没有可添加的支出流水", color = MaterialTheme.colorScheme.outline)
+                    } else {
+                        s.linkCandidates.forEach { t ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        buildString {
+                                            append("${t.amount.toYuan()} 元 · ")
+                                            append(s.accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
+                                            append(" · ")
+                                            append(t.businessDate.formatDay())
+                                            if (t.note.isNotBlank()) append("（${t.note}）")
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                                onClick = {
+                                    vm.linkExpenseToGroup(t.id) { err ->
+                                        scope.launch { snackbar.showSnackbar(err ?: "已加入本组") }
+                                    }
+                                    showLinkDialog = false
+                                },
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showLinkDialog = false }) { Text("关闭") } },
+        )
     }
 
     if (showRefundDialog) {
@@ -751,6 +828,7 @@ private fun ExpenseExtensionCard(
             title = "添加退款（发生即退回所选账户余额）",
             accounts = s.visibleAccounts,
             defaultAmountFen = (vm.amountInput.toFen() ?: 0L) - s.refundSum,
+            fullAmountFen = vm.amountInput.toFen()?.takeIf { it > 0 },
             onConfirm = { amount, accountId, timeMillis, note ->
                 vm.addRefund(amount, accountId, timeMillis, note) { err ->
                     scope.launch { snackbar.showSnackbar(err ?: "退款已记录") }
@@ -798,23 +876,28 @@ private fun ExtensionSwitchRow(label: String, checked: Boolean, onChange: (Boole
     }
 }
 
-/** 退款 / 报销共用的录入对话框：金额、账户、时间 必填，备注可选 */
+/** 分 → 元输入框文本（整数不带小数点，否则两位小数） */
+private fun formatFenInput(fen: Long): String =
+    if (fen % 100 == 0L) "${fen / 100}" else "%.2f".format(fen / 100.0)
+
+/**
+ * 退款 / 报销共用的录入对话框：金额、账户、时间 必填，备注可选。
+ * [fullAmountFen] 非空（仅退款使用）时提供「原价退还」开关：开启后金额锁定为本笔支出，无需手填。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RefundReimburseDialog(
     title: String,
     accounts: List<AccountEntity>,
     defaultAmountFen: Long,
+    fullAmountFen: Long? = null,
     onConfirm: (amount: Long, accountId: Long, timeMillis: Long, note: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var amountText by remember {
-        mutableStateOf(
-            if (defaultAmountFen <= 0) ""
-            else if (defaultAmountFen % 100 == 0L) "${defaultAmountFen / 100}"
-            else "%.2f".format(defaultAmountFen / 100.0),
-        )
+        mutableStateOf(if (defaultAmountFen <= 0) "" else formatFenInput(defaultAmountFen))
     }
+    var fullPrice by remember { mutableStateOf(false) }
     var accountId by remember { mutableStateOf<Long?>(null) }
     var timeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
     var note by remember { mutableStateOf("") }
@@ -822,20 +905,35 @@ private fun RefundReimburseDialog(
 
     val amountValid = isValidMoneyText(amountText, allowNegative = false)
     val amountFen = moneyTextToFen(amountText, allowNegative = false)
-    val ready = amountFen != null && amountFen > 0 && accountId != null
+    val ready = accountId != null && (fullPrice || (amountFen != null && amountFen > 0))
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // 金额（必填，校验红字）
+                // 原价退还（退款专用）：开启后金额 = 本笔支出，无需手填
+                if (fullAmountFen != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("原价退还（金额 = 本笔支出）", style = MaterialTheme.typography.bodySmall)
+                        Spacer(modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = fullPrice,
+                            onCheckedChange = { on ->
+                                fullPrice = on
+                                if (on) amountText = formatFenInput(fullAmountFen)
+                            },
+                        )
+                    }
+                }
+                // 金额（必填，校验红字；原价退还时锁定）
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
                     label = { Text("金额（元）*") },
                     singleLine = true,
-                    isError = !amountValid || (amountText.isNotEmpty() && amountFen == null),
+                    enabled = !fullPrice,
+                    isError = !fullPrice && (!amountValid || (amountText.isNotEmpty() && amountFen == null)),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (!amountValid) {
@@ -884,9 +982,9 @@ private fun RefundReimburseDialog(
             TextButton(
                 enabled = ready,
                 onClick = {
-                    val acc = accountId
-                    val fen = amountFen
-                    if (acc != null && fen != null) onConfirm(fen, acc, timeMillis, note.trim())
+                    val acc = accountId ?: return@TextButton
+                    val fen = if (fullPrice) fullAmountFen else amountFen
+                    if (fen != null && fen > 0) onConfirm(fen, acc, timeMillis, note.trim())
                 },
             ) { Text("确定") }
         },

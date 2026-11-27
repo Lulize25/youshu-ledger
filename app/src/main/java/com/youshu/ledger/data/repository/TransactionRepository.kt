@@ -99,13 +99,14 @@ class TransactionRepository(
         settings.bumpDataVersion()
     }
 
-    /** 追加一条报销记录（规则与退款一致） */
+    /** 追加一条报销记录（规则与退款一致）；[groupId] 非空时组内共享 */
     suspend fun addReimburse(
         transactionId: Long,
         amount: Long,
         reimburseAccountId: Long,
         timeMillis: Long,
         note: String,
+        groupId: Long? = null,
     ) {
         dao.upsertReimburse(
             ReimburseRecordEntity(
@@ -115,6 +116,7 @@ class TransactionRepository(
                 timeMillis = timeMillis,
                 note = note,
                 createdAt = System.currentTimeMillis(),
+                groupId = groupId,
             ),
         )
         settings.bumpDataVersion()
@@ -161,6 +163,36 @@ class TransactionRepository(
         val detail = dao.getWithDetails(transactionId) ?: return
         val total = detail.advances.sumOf { it.amount ?: 0L }
         dao.update(detail.transaction.copy(advanceAmount = total))
+    }
+
+    // ---------- 条目组（v1.7） ----------
+
+    /** 组内全部 A钱条（gid = 组号，通常为组内首条支出流水 id） */
+    suspend fun getAdvancesForGroup(gid: Long, txnId: Long) = dao.getAdvancesForGroup(gid, txnId)
+
+    /** 组内全部报销条 */
+    suspend fun getReimbursesForGroup(gid: Long, txnId: Long) = dao.getReimbursesForGroup(gid, txnId)
+
+    /** 组内其他支出条 */
+    suspend fun getGroupExpenses(gid: Long, excludeId: Long) = dao.getGroupExpenses(gid, excludeId)
+
+    /** 可加入本组的支出流水候选 */
+    suspend fun getExpenseLinkCandidates(bookId: Long, excludeId: Long, gid: Long) =
+        dao.getExpenseLinkCandidates(bookId, excludeId, gid)
+
+    /** 把流水的组号置为自身 id（成为组头），返回组号 */
+    suspend fun createGroup(txn: TransactionEntity): Long {
+        dao.update(txn.copy(groupId = txn.id))
+        settings.bumpDataVersion()
+        return txn.id
+    }
+
+    /** 把一条支出流水挂入组 / 移出组 */
+    suspend fun setTxnGroup(txnId: Long, gid: Long?) {
+        dao.getById(txnId)?.let {
+            dao.update(it.copy(groupId = gid))
+            settings.bumpDataVersion()
+        }
     }
 
     /**

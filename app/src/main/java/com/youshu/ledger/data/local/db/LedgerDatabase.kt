@@ -146,6 +146,20 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+/**
+ * v8 → v9：A钱 / 报销「条目组」（v1.7）。
+ * transactions / advance_records / reimburse_records 各加可空列 groupId：
+ * 组内「支出条 / A钱条 / 报销条」在任意一条支出上可见可编辑。
+ * 旧数据 groupId 全 null = 未入组，行为与旧版完全一致（仅挂在原流水上）。
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `transactions` ADD COLUMN `groupId` INTEGER")
+        db.execSQL("ALTER TABLE `advance_records` ADD COLUMN `groupId` INTEGER")
+        db.execSQL("ALTER TABLE `reimburse_records` ADD COLUMN `groupId` INTEGER")
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -218,7 +232,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -245,6 +259,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+                        MIGRATION_8_9,
                     )
                     .build()
                     .also { instance = it }

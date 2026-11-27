@@ -206,18 +206,23 @@ fun TxnRow(
                         )
                     }
                 }
-                // 部分备注（省略号截断）+ 展开箭头
+                // 部分备注（省略号截断；展开后隐藏，展开区显示完整备注）+ 展开箭头
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = item.note,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(top = 2.dp),
-                    )
+                    if (!expanded) {
+                        Text(
+                            text = item.note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(top = 2.dp),
+                        )
+                    } else {
+                        // 展开时占位，保证箭头位置不动
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                     IconButton(
                         onClick = { expanded = !expanded },
                         modifier = Modifier.size(22.dp),
