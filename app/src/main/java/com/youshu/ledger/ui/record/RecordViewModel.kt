@@ -279,6 +279,18 @@ class RecordViewModel(
             val bookId = _ui.value.bookId
             val all = categoryRepo.getAll()
             val ofType = all.filter { it.type == type }
+            // 只支持两级：父分类必须是根分类（防止任何入口造出第三级）
+            if (parentId != null) {
+                val parent = ofType.firstOrNull { it.id == parentId }
+                if (parent == null) {
+                    onResult("父分类不存在")
+                    return@launch
+                }
+                if (parent.parentId != null) {
+                    onResult("分类最多支持两级（一级分类 · 二级分类）")
+                    return@launch
+                }
+            }
             val sortOrder = (ofType.maxOfOrNull { it.sortOrder } ?: -1) + 1
             val trimmed = name.trim()
             val id = categoryRepo.upsert(

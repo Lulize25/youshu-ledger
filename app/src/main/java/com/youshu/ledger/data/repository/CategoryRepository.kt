@@ -58,15 +58,21 @@ class CategoryRepository(private val dao: CategoryDao) {
         var created = 0
 
         // 栈实现先父后子遍历：父分类先创建，子分类才能挂 parentId
-        data class Frame(val node: com.youshu.ledger.data.io.CategoryExportNode, val parentId: Long?, val type: CategoryType)
+        // depth：0=一级（根），1=二级；分类只支持两级，更深的节点提升为一级（parentId=null）
+        data class Frame(
+            val node: com.youshu.ledger.data.io.CategoryExportNode,
+            val parentId: Long?,
+            val type: CategoryType,
+            val depth: Int,
+        )
 
         val stack = ArrayDeque<Frame>()
         nodes.forEach { node ->
             val type = runCatching { CategoryType.valueOf(node.type) }.getOrNull() ?: return@forEach
-            stack.addLast(Frame(node, null, type))
+            stack.addLast(Frame(node, null, type, 0))
         }
         while (stack.isNotEmpty()) {
-            val (node, parentId, type) = stack.removeLast()
+            val (node, parentId, type, depth) = stack.removeLast()
             val existing = dao.getAll().firstOrNull {
                 it.type == type && it.parentId == parentId && it.name == node.name
             }
@@ -82,9 +88,10 @@ class CategoryRepository(private val dao: CategoryDao) {
                     ),
                 )
             }
-            // 逆序压栈保证创建顺序与文件一致
+            // 逆序压栈保证创建顺序与文件一致；depth+1 >= 2 的节点不再挂靠，提升为一级
             node.children.asReversed().forEach { child ->
-                stack.addLast(Frame(child, id, type))
+                val childDepth = depth + 1
+                stack.addLast(Frame(child, if (childDepth >= 2) null else id, type, childDepth))
             }
         }
         return created

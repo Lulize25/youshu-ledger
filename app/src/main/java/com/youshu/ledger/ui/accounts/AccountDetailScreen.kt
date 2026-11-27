@@ -102,6 +102,9 @@ class AccountDetailViewModel(
         note = transaction.note,
         project = transaction.project,
         category = transaction.categoryId?.let { catById[it] },
+        categoryPath = transaction.categoryId?.let { catById[it] }?.let { leaf ->
+            catById[leaf.parentId]?.let { "${it.name} · ${leaf.name}" } ?: leaf.name
+        } ?: "",
         accountName = "",
         toAccountName = null,
         refundSum = refunds.sumOf { it.amount },
