@@ -6,11 +6,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -384,13 +381,12 @@ fun BookTopBar(
     actions: @Composable () -> Unit = {},
 ) {
     Surface(
-        color = Color.White,
+        color = MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(horizontal = 8.dp, vertical = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

@@ -229,6 +229,8 @@ class RecordViewModel(
                 state = state.copy(timeOfDay = currentMinuteOfDay())
             }
             _ui.value = state
+            // 编辑任意组员时都立即载入整组条目，保证开关和关联列表在每一条上保持一致。
+            if (txnId != null && state.editingId != null) reloadDetails()
         }
     }
 
@@ -404,7 +406,8 @@ class RecordViewModel(
             val s = _ui.value
             val gid = ensureGroup() ?: return@launch
             _ui.value = _ui.value.copy(
-                linkCandidates = txnRepo.getLinkCandidates(s.bookId, id, gid, s.type),
+                // 扩展区始终关联支出条；当前正在编辑收入角色条时也要能找到支出候选。
+                linkCandidates = txnRepo.getLinkCandidates(s.bookId, id, gid, TxnType.EXPENSE),
             )
         }
     }
