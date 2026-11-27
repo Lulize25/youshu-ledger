@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -350,8 +351,7 @@ fun BookSwitcherBar(
 }
 
 /**
- * 主页面顶栏：**一根** TopAppBar，标题区内上方是账本切换行（较大字号），下方是页面标题。
- * 避免「账本栏 + 标题栏」两根 Bar 叠放产生的大空隙。
+ * 主页面顶栏：一根 TopAppBar，账本行 + 页面标题上下紧邻（低高度、顶部对齐）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -362,12 +362,19 @@ fun BookTopBar(
     actions: @Composable () -> Unit = {},
 ) {
     TopAppBar(
+        expandedHeight = 60.dp, // 顶栏整体压低，可再调到 56.dp
         title = {
-            Column {
-                // 顶栏最顶部：账本切换（titleMedium）
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()   // 关键：撑满顶栏，内容从顶部往下排，不再被居中压下去
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp), // 两行之间的缝隙，0~4dp 微调
+            ) {
                 BookSwitcherRow(container, MaterialTheme.typography.titleMedium)
-                // 页面标题（TopAppBar 标题槽默认 titleLarge 样式）
-                Text(title)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium, // 比默认 titleLarge 小一号，更省高度
+                )
             }
         },
         navigationIcon = {
