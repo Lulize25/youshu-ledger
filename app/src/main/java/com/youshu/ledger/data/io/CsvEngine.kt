@@ -7,7 +7,6 @@ import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
-import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.data.repository.BookRepository
 import com.youshu.ledger.data.repository.CategoryRepository
@@ -293,7 +292,7 @@ object CsvEngine {
                 // 退款合计作为一条汇总退款记录导入（与原支出同账户）
                 col(Field.REFUND)?.replace(",", "")?.toDoubleOrNull()?.let { if (it > 0) (it * 100).toLong() else null }
                     ?.let { txnDao.upsertRefund(com.youshu.ledger.data.local.entity.RefundRecordEntity(0, txnId, it, account.id, createdAt, "CSV 导入", System.currentTimeMillis())) }
-                // 报销合计 / 代付 → 角色条目流水（v1.7.2 起：REIMBURSE / ADVANCE 收入流水，挂入本条组）
+                // 兼容 CSV 中的报销 / 代付列：转换为普通收入流水并与支出放入同一组。
                 col(Field.REIMBURSE)?.replace(",", "")?.toDoubleOrNull()?.let { if (it > 0) (it * 100).toLong() else null }
                     ?.let { amt ->
                         txnDao.upsert(
@@ -302,7 +301,7 @@ object CsvEngine {
                                 businessDate = businessDate, createdAt = createdAt,
                                 note = "CSV 导入报销", categoryId = null,
                                 accountId = account.id, toAccountId = null, fee = 0,
-                                groupId = txnId, entryRole = TxnRole.REIMBURSE,
+                                groupId = txnId,
                             ),
                         )
                     }
@@ -314,7 +313,7 @@ object CsvEngine {
                                 businessDate = businessDate, createdAt = createdAt,
                                 note = "CSV 导入A钱", categoryId = null,
                                 accountId = account.id, toAccountId = null, fee = 0,
-                                groupId = txnId, entryRole = TxnRole.ADVANCE,
+                                groupId = txnId,
                             ),
                         )
                     }

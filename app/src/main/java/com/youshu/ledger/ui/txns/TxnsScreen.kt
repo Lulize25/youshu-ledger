@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.youshu.ledger.data.AppContainer
 import com.youshu.ledger.data.local.entity.TxnType
+import com.youshu.ledger.data.local.entity.TransactionWithDetails
 import com.youshu.ledger.domain.util.formatTime
 import com.youshu.ledger.domain.util.toLocalDate
 import com.youshu.ledger.domain.util.weekDayCn
@@ -58,6 +60,7 @@ import com.youshu.ledger.ui.common.DateTimeButtonsRow
 import com.youshu.ledger.ui.common.DayHeader
 import com.youshu.ledger.ui.common.TxnDisplay
 import com.youshu.ledger.ui.common.TxnRow
+import com.youshu.ledger.ui.common.toTxnDisplay
 import com.youshu.ledger.ui.common.ConfirmDialog
 import com.youshu.ledger.ui.common.LedgerTopBar
 import com.youshu.ledger.ui.common.MoneyText
@@ -361,4 +364,75 @@ private fun FilterBar(
         }
         Spacer(modifier = Modifier.height(8.dp))
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TxnCandidatePickerDialog(
+    transactions: List<TransactionWithDetails>,
+    accounts: List<com.youshu.ledger.data.local.entity.AccountEntity>,
+    categories: List<com.youshu.ledger.data.local.entity.CategoryEntity>,
+    filters: TxnFilters,
+    onFilters: (TxnFilters) -> Unit,
+    onSelect: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val displays = transactions.map { it.toTxnDisplay(accounts, categories) }
+    val visible = transactions.zip(displays).filter { (detail, item) ->
+        val f = filters
+        (f.accountId == null || detail.transaction.accountId == f.accountId || detail.transaction.toAccountId == f.accountId) &&
+            (f.categoryId == null || detail.transaction.categoryId == f.categoryId) &&
+            (f.type == null || detail.transaction.type == f.type) &&
+            (f.startDate == null || detail.transaction.businessDate +
+                (if (detail.transaction.timeOfDay >= 0) detail.transaction.timeOfDay else 1439) * 60_000L >= f.startDate) &&
+            (f.endDate == null || detail.transaction.businessDate +
+                (if (detail.transaction.timeOfDay >= 0) detail.transaction.timeOfDay else 0) * 60_000L <= f.endDate) &&
+            (f.keyword.isBlank() || listOf(item.note, item.project, item.category?.name.orEmpty(), item.categoryPath)
+                .any { it.contains(f.keyword, ignoreCase = true) })
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择关联流水") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 680.dp)) {
+                FilterBar(
+                    state = TxnListUiState(
+                        loading = false,
+                        accounts = accounts,
+                        categories = categories,
+                        filters = filters,
+                    ),
+                    onFilters = onFilters,
+                    onClose = {},
+                )
+                if (visible.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                        Text("没有符合条件的流水", color = MaterialTheme.colorScheme.outline)
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        var lastDay: String? = null
+                        visible.forEach { (detail, display) ->
+                            val day = display.businessDate.toLocalDate().toString()
+                            if (day != lastDay) {
+                                item(key = "candidate_day_$day") {
+                                    Text(
+                                        day,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
+                                lastDay = day
+                            }
+                            item(key = "candidate_${detail.transaction.id}") {
+                                TxnRow(item = display, onClick = { onSelect(detail.transaction.id) })
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
 }

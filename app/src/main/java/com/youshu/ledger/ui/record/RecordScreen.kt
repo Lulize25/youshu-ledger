@@ -86,7 +86,6 @@ import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
-import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.domain.util.currentMinuteOfDay
 import com.youshu.ledger.domain.util.formatDay
@@ -106,6 +105,7 @@ import com.youshu.ledger.ui.common.MoneyInputDialog
 import com.youshu.ledger.ui.common.accountIconColor
 import com.youshu.ledger.ui.common.isValidMoneyText
 import com.youshu.ledger.ui.common.moneyTextToFen
+import com.youshu.ledger.ui.txns.TxnCandidatePickerDialog
 import com.youshu.ledger.ui.theme.expense
 import com.youshu.ledger.ui.theme.income
 import kotlinx.coroutines.launch
@@ -115,7 +115,7 @@ import java.io.File
  * 记一笔 / 编辑流水页。
  * 类型切换、金额键盘、分类搜索与两级网格（可加分类/二级分类）、账户选择、
  * 时间（日期+分钟，默认当前）、项目名称、备注、附件；
- * 支出类型提供退款/报销/代付三个开关区块（编辑已保存流水时可直接操作）。
+ * 支出流水提供退款区块；所有类型均可把已有流水关联到同一小组。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,6 +123,7 @@ fun RecordScreen(
     container: AppContainer,
     txnId: Long?,
     onDone: () -> Unit,
+    onEdit: (Long) -> Unit,
 ) {
     val context = LocalContext.current
     val vm: RecordViewModel = viewModel(factory = RecordViewModel.factory(container, context, txnId))
@@ -366,11 +367,9 @@ fun RecordScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ---- 扩展：退款/报销/代付 + 条目组（支出/收入可用，开关控制显隐） ----
-            if (s.type != TxnType.TRANSFER) {
-                ExpenseExtensionCard(vm, s, snackbar, scope)
-                Spacer(modifier = Modifier.height(12.dp))
-            }
+            // ---- 退款与统一流水关联（所有流水类型可用） ----
+            ExpenseExtensionCard(vm, s, snackbar, scope, onEdit)
+            Spacer(modifier = Modifier.height(12.dp))
 
             // ---- 附件 ----
             AttachmentSection(
@@ -665,10 +664,7 @@ private fun AccountPicker(
 }
 
 /**
- * 退款 / A钱 / 报销区块：三个开关，开启后显示对应内容。
- * 退款：金额+账户+时间必填、备注可选，可多次（对话框录入，发生即退回账户余额）；
- * A钱 / 报销：条目 = 带角色标记并关联进本组的收入流水，
- * 开关下是只读条目列表，「添加」从已有收入流水中选择（去流水页记一笔后再回来关联即可）。
+ * 退款区块与统一流水关联列表。新建流水可以先选择关联项，保存当前流水时再入组。
  */
 @Composable
 private fun ExpenseExtensionCard(
@@ -676,91 +672,73 @@ private fun ExpenseExtensionCard(
     s: RecordUiState,
     snackbar: SnackbarHostState,
     scope: kotlinx.coroutines.CoroutineScope,
+    onEdit: (Long) -> Unit,
 ) {
+    val displayedGroupTransactions = (s.groupTransactions + s.pendingExpenseLinks).distinctBy { it.id }
     var refundOn by remember { mutableStateOf(s.refunds.isNotEmpty()) }
-    var reimburseOn by remember { mutableStateOf(s.groupReimburseEntries.isNotEmpty()) }
-    var advanceOn by remember { mutableStateOf(s.groupAdvanceEntries.isNotEmpty()) }
     var showRefundDialog by remember { mutableStateOf(false) }
     var showLinkDialog by remember { mutableStateOf(false) }
-    var pendingRole by remember { mutableStateOf<TxnRole?>(null) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // ---- 退款 ----
-            ExtensionSwitchRow("退款（可多次、部分退）", refundOn) { refundOn = it }
-            if (refundOn) {
-                RecordList(
-                    rows = s.refunds.map { r ->
-                        buildString {
-                            append("${r.amount.toYuan()} 元")
-                            append(" → ")
-                            append(s.accounts.firstOrNull { it.id == r.accountId }?.name ?: "未知账户")
-                            append(" · ")
-                            append(r.timeMillis.formatTime())
-                            if (r.note.isNotBlank()) append("（${r.note}）")
-                        }
-                    },
-                    onAdd = { showRefundDialog = true },
-                    onDeleteAt = { idx -> s.refunds.getOrNull(idx)?.let(vm::deleteRefund) },
-                )
+            if (s.type == TxnType.EXPENSE) {
+                ExtensionSwitchRow("退款（可多次、部分退）", refundOn) { refundOn = it }
+                if (refundOn) {
+                    RecordList(
+                        rows = s.refunds.map { r ->
+                            buildString {
+                                append("${r.amount.toYuan()} 元 → ")
+                                append(s.accounts.firstOrNull { it.id == r.accountId }?.name ?: "未知账户")
+                                append(" · ${r.timeMillis.formatTime()}")
+                                if (r.note.isNotBlank()) append("（${r.note}）")
+                            }
+                        },
+                        onAdd = { showRefundDialog = true },
+                        onDeleteAt = { idx -> s.refunds.getOrNull(idx)?.let(vm::deleteRefund) },
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // ---- A钱：他人还款条目（角色收入流水） ----
-            ExtensionSwitchRow("A钱（他人还款）", advanceOn) { advanceOn = it }
-            if (advanceOn) {
-                RoleEntrySection(
-                    entries = s.groupAdvanceEntries,
-                    accounts = s.accounts,
-                    emptyHint = "暂无。添加 = 从已有收入流水里选一条标记为 A钱条；组内任一流水上都能查看和移出",
-                    onAdd = { vm.loadRoleCandidates(); pendingRole = TxnRole.ADVANCE },
-                    onRemove = vm::clearEntryRole,
-                )
-            }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // ---- 报销：报销到账条目（角色收入流水） ----
-            ExtensionSwitchRow("报销（到账）", reimburseOn) { reimburseOn = it }
-            if (reimburseOn) {
-                RoleEntrySection(
-                    entries = s.groupReimburseEntries,
-                    accounts = s.accounts,
-                    emptyHint = "暂无。添加 = 从已有收入流水里选一条标记为报销条；组内任一流水上都能查看和移出",
-                    onAdd = { vm.loadRoleCandidates(); pendingRole = TxnRole.REIMBURSE },
-                    onRemove = vm::clearEntryRole,
-                )
-            }
-
-            // ---- 关联流水（条目组）：组内其他支出条，等价可见 ----
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("关联流水（本组）", style = MaterialTheme.typography.titleSmall)
+                Text("关联流水", style = MaterialTheme.typography.titleSmall)
                 Spacer(modifier = Modifier.weight(1f))
-                TextButton(onClick = { vm.loadLinkCandidates(); showLinkDialog = true }) { Text("添加") }
+                TextButton(onClick = {
+                    vm.loadLinkCandidates { err ->
+                        if (err != null) scope.launch { snackbar.showSnackbar(err) }
+                        else showLinkDialog = true
+                    }
+                }) { Text("添加") }
             }
-            if (s.groupExpenses.isEmpty()) {
+            if (displayedGroupTransactions.isEmpty()) {
                 Text(
-                    "暂无。关联后组内支出条在任一流水上都能查看和移出",
+                    "暂无关联项。可添加支出、收入或转账流水；已在其他组的流水会合并到本组。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline,
                 )
             } else {
-                s.groupExpenses.forEach { t ->
+                displayedGroupTransactions.forEach { t ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = buildString {
-                                append("${t.amount.toYuan()} 元 · ")
+                                append(when (t.type) {
+                                    TxnType.EXPENSE -> "支出"
+                                    TxnType.INCOME -> "收入"
+                                    TxnType.TRANSFER -> "转账"
+                                })
+                                append(" · ${t.amount.toYuan()} 元 · ")
                                 append(s.accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
-                                append(" · ")
-                                append(t.businessDate.formatDay())
+                                append(" · ${t.businessDate.formatDay()}")
                                 if (t.note.isNotBlank()) append("（${t.note}）")
                             },
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).clickable { onEdit(t.id) },
                         )
-                        IconButton(onClick = { vm.unlinkExpenseFromGroup(t.id) }) {
+                        if (t.id != s.editingId) IconButton(onClick = {
+                            if (s.pendingExpenseLinks.any { it.id == t.id }) vm.removePendingExpense(t.id)
+                            else vm.unlinkExpenseFromGroup(t.id)
+                        }) {
                             Icon(Icons.Default.Close, contentDescription = "移出本组", modifier = Modifier.size(18.dp))
                         }
                     }
@@ -769,92 +747,18 @@ private fun ExpenseExtensionCard(
         }
     }
 
-    // 选择已有收入流水，标记为 A钱条 / 报销条
-    pendingRole?.let { role ->
-        AlertDialog(
-            onDismissRequest = { pendingRole = null },
-            title = {
-                Text(if (role == TxnRole.ADVANCE) "添加 A钱条（选择已有收入流水）" else "添加报销条（选择已有收入流水）")
-            },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    if (s.roleLinkCandidates.isEmpty()) {
-                        Text(
-                            "没有可添加的收入流水。请先在流水页「记一笔」录入该笔收入，再回来关联。",
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    } else {
-                        s.roleLinkCandidates.forEach { t ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        buildString {
-                                            append("${t.amount.toYuan()} 元 · ")
-                                            append(s.accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
-                                            append(" · ")
-                                            append(t.businessDate.formatDay())
-                                            val label = listOf(t.project, t.note)
-                                                .filter { it.isNotBlank() }
-                                                .joinToString(" ")
-                                            if (label.isNotBlank()) append("（$label）")
-                                        },
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                onClick = {
-                                    vm.markEntryRole(t.id, role) { err ->
-                                        scope.launch { snackbar.showSnackbar(err ?: "已加入本组") }
-                                    }
-                                    pendingRole = null
-                                },
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { pendingRole = null }) { Text("关闭") } },
-        )
-    }
-
-    if (showLinkDialog) {
-        AlertDialog(
-            onDismissRequest = { showLinkDialog = false },
-            title = { Text("添加流水到本组") },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    if (s.linkCandidates.isEmpty()) {
-                        Text("没有可添加的流水", color = MaterialTheme.colorScheme.outline)
-                    } else {
-                        s.linkCandidates.forEach { t ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        buildString {
-                                            append("${t.amount.toYuan()} 元 · ")
-                                            append(s.accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
-                                            append(" · ")
-                                            append(t.businessDate.formatDay())
-                                            if (t.note.isNotBlank()) append("（${t.note}）")
-                                        },
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                onClick = {
-                                    vm.linkExpenseToGroup(t.id) { err ->
-                                        scope.launch { snackbar.showSnackbar(err ?: "已加入本组") }
-                                    }
-                                    showLinkDialog = false
-                                },
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showLinkDialog = false }) { Text("关闭") } },
-        )
-    }
+    if (showLinkDialog) TxnCandidatePickerDialog(
+        transactions = s.linkCandidates,
+        accounts = s.accounts,
+        categories = s.categories,
+        filters = s.candidateFilters,
+        onFilters = vm::updateCandidateFilters,
+        onSelect = { id ->
+            vm.linkExpenseToGroup(id) { err -> scope.launch { snackbar.showSnackbar(err ?: "已加入本组") } }
+            showLinkDialog = false
+        },
+        onDismiss = { showLinkDialog = false },
+    )
 
     if (showRefundDialog) {
         RefundReimburseDialog(
@@ -870,46 +774,6 @@ private fun ExpenseExtensionCard(
             },
             onDismiss = { showRefundDialog = false },
         )
-    }
-}
-
-/** A钱条 / 报销条区块：只读条目列表 + 「添加」从已有收入流水选择 + 移出本组 */
-@Composable
-private fun RoleEntrySection(
-    entries: List<TransactionEntity>,
-    accounts: List<AccountEntity>,
-    emptyHint: String,
-    onAdd: () -> Unit,
-    onRemove: (Long) -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Spacer(modifier = Modifier.weight(1f))
-        TextButton(onClick = onAdd) { Text("添加") }
-    }
-    if (entries.isEmpty()) {
-        Text(emptyHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-    } else {
-        entries.forEach { t ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = buildString {
-                        append("${t.amount.toYuan()} 元 · ")
-                        append(accounts.firstOrNull { it.id == t.accountId }?.name ?: "未知账户")
-                        append(" · ")
-                        append(t.businessDate.formatDay())
-                        val label = listOf(t.project, t.note).filter { it.isNotBlank() }.joinToString(" ")
-                        if (label.isNotBlank()) append("（$label）")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = { onRemove(t.id) }, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "移出本组", modifier = Modifier.size(18.dp))
-                }
-            }
-        }
     }
 }
 

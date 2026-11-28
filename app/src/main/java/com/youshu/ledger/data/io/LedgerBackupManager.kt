@@ -58,7 +58,6 @@ class LedgerBackupManager(
                     recoveredAmount = d.transaction.recoveredAmount,
                     timeOfDay = d.transaction.timeOfDay,
                     groupId = d.transaction.groupId,
-                    entryRole = d.transaction.entryRole.name,
                     refunds = d.refunds.map { it.toDto() },
                     attachments = d.attachments.map { it.relativePath },
                 )
@@ -111,9 +110,6 @@ class LedgerBackupManager(
                         advanceAmount = t.advanceAmount, recoveredAmount = t.recoveredAmount,
                         timeOfDay = t.timeOfDay,
                         groupId = t.groupId,
-                        entryRole = runCatching {
-                            com.youshu.ledger.data.local.entity.TxnRole.valueOf(t.entryRole)
-                        }.getOrDefault(com.youshu.ledger.data.local.entity.TxnRole.NORMAL),
                     ),
                 )
                 t.refunds.forEach { txnDao.upsertRefund(it.toEntity(t.id, t.accountId)) }
@@ -123,8 +119,8 @@ class LedgerBackupManager(
             }
             // 5b) v1.7.1 及更早备份的报销/代付子表 → 角色条目流水（A钱条/报销条）
             backup.transactions.forEach { t ->
-                t.reimbursements.forEach { txnDao.upsert(it.toRoleTxn(t)) }
-                t.advances.forEach { txnDao.upsert(it.toRoleTxn(t)) }
+                t.reimbursements.forEach { txnDao.upsert(it.toGroupedTxn(t)) }
+                t.advances.forEach { txnDao.upsert(it.toGroupedTxn(t)) }
             }
 
             // 6) 预算

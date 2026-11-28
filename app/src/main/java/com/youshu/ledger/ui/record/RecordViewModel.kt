@@ -15,8 +15,8 @@ import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
-import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
+import com.youshu.ledger.data.local.entity.TransactionWithDetails
 import com.youshu.ledger.domain.util.currentMinuteOfDay
 import com.youshu.ledger.domain.util.todayMillis
 import com.youshu.ledger.ui.common.AmountInputState
@@ -53,15 +53,14 @@ data class RecordUiState(
     val categories: List<CategoryEntity> = emptyList(),
     /** 条目组：当前流水的组号（null = 未入组；组号 = 组内首条流水 id） */
     val groupId: Long? = null,
-    /** 组内其他支出条（展示用；任一组员上可见可编辑） */
-    val groupExpenses: List<TransactionEntity> = emptyList(),
-    /** 组内 A钱条 / 报销条（带角色标记的收入流水，任一组员上可见可移出） */
-    val groupAdvanceEntries: List<TransactionEntity> = emptyList(),
-    val groupReimburseEntries: List<TransactionEntity> = emptyList(),
-    /** 可加入本组的流水候选（打开选择对话框时加载） */
-    val linkCandidates: List<TransactionEntity> = emptyList(),
-    /** 可标记为 A钱条 / 报销条的候选收入流水（打开选择对话框时加载） */
-    val roleLinkCandidates: List<TransactionEntity> = emptyList(),
+    /** 新建当前流水时已建立的关联组，供当前流水稍后保存时加入。 */
+    val pendingGroupId: Long? = null,
+    val groupTransactions: List<TransactionEntity> = emptyList(),
+    /** 可加入本组的候选流水（含主流水页所需的退款、附件详情） */
+    val linkCandidates: List<TransactionWithDetails> = emptyList(),
+    val candidateFilters: com.youshu.ledger.ui.txns.TxnFilters = com.youshu.ledger.ui.txns.TxnFilters(),
+    /** 新建流水尚未落库时暂存的成员，保存当前流水后再正式入组。 */
+    val pendingExpenseLinks: List<TransactionEntity> = emptyList(),
     val saving: Boolean = false,
     val message: String? = null,
 ) {
@@ -125,6 +124,8 @@ data class RecordDraft(
     val toAccountId: Long? = null,
     val feeFen: Long = 0,
     val amountText: String = "",
+    val pendingExpenseLinkIds: List<Long> = emptyList(),
+    val pendingGroupId: Long? = null,
 )
 
 /**
@@ -222,6 +223,8 @@ class RecordViewModel(
                     toAccountId = draft.toAccountId
                         ?.takeIf { id -> accounts.any { it.id == id } },
                     feeFen = draft.feeFen,
+                    pendingExpenseLinks = draft.pendingExpenseLinkIds.mapNotNull { txnRepo.getTransaction(it) },
+                    pendingGroupId = draft.pendingGroupId,
                 )
                 draft.amountText.forEach { amountInput.append(it) }
             } else {
@@ -251,6 +254,8 @@ class RecordViewModel(
                 toAccountId = s.toAccountId,
                 feeFen = s.feeFen,
                 amountText = amountInput.text,
+                pendingExpenseLinkIds = s.pendingExpenseLinks.map { it.id },
+                pendingGroupId = s.pendingGroupId,
             ),
         )
     }
@@ -262,6 +267,26 @@ class RecordViewModel(
     fun update(transform: (RecordUiState) -> RecordUiState) {
         _ui.value = transform(_ui.value)
         persistDraft()
+    }
+
+    fun updateCandidateFilters(filters: com.youshu.ledger.ui.txns.TxnFilters) {
+        _ui.value = _ui.value.copy(candidateFilters = filters)
+    }
+
+    fun removePendingExpense(txnId: Long) {
+        viewModelScope.launch {
+            txnRepo.setTxnGroup(txnId, null)
+            val remaining = _ui.value.pendingExpenseLinks.filterNot { it.id == txnId }
+            val gid = _ui.value.pendingGroupId
+            val members = gid?.let { txnRepo.getGroupTransactions(it) }.orEmpty()
+            _ui.value = _ui.value.copy(
+                pendingExpenseLinks = remaining,
+                pendingGroupId = gid.takeIf { members.isNotEmpty() },
+                groupId = gid.takeIf { members.isNotEmpty() },
+                groupTransactions = members,
+            )
+            persistDraft()
+        }
     }
 
     /** 切换类型时清空分类（收入/支出分类树不同） */
@@ -337,7 +362,7 @@ class RecordViewModel(
             accountId = s.accountId ?: return "请选择账户",
             toAccountId = if (s.type == TxnType.TRANSFER) s.toAccountId else null,
             fee = if (s.type == TxnType.TRANSFER) s.feeFen else 0,
-            groupId = base?.groupId,
+            groupId = base?.groupId ?: s.pendingGroupId,
         )
         _ui.value = s.copy(saving = true)
         return try {
@@ -345,6 +370,7 @@ class RecordViewModel(
                 val id = txnRepo.createTransaction(entity)
                 loadedTxn = entity.copy(id = id)
                 _ui.value = _ui.value.copy(editingId = id, saving = false)
+                if (entity.groupId != null) reloadDetails()
                 clearDraft()
             } else {
                 txnRepo.updateTransaction(entity)
@@ -400,21 +426,44 @@ class RecordViewModel(
     }
 
     /** 加载可加入本组的流水候选（打开选择对话框时调用；会先自动保存新建流水并建组） */
-    fun loadLinkCandidates() {
+    fun loadLinkCandidates(onLoaded: (String?) -> Unit = {}) {
         viewModelScope.launch {
-            val id = ensureSaved() ?: return@launch
             val s = _ui.value
-            val gid = ensureGroup() ?: return@launch
-            _ui.value = _ui.value.copy(
-                // 扩展区始终关联支出条；当前正在编辑收入角色条时也要能找到支出候选。
-                linkCandidates = txnRepo.getLinkCandidates(s.bookId, id, gid, TxnType.EXPENSE),
-            )
+            val id = s.editingId ?: -1L
+            val gid = s.groupId ?: s.pendingGroupId ?: s.editingId ?: -1L
+            runCatching {
+                txnRepo.getGroupCandidates(s.bookId, id, gid).filterNot { d ->
+                    s.pendingExpenseLinks.any { it.id == d.transaction.id }
+                }
+            }.onSuccess {
+                val groupId = _ui.value.pendingGroupId ?: _ui.value.groupId
+                _ui.value = _ui.value.copy(
+                    linkCandidates = it,
+                    groupTransactions = groupId?.let { gid -> txnRepo.getGroupTransactions(gid) } ?: _ui.value.groupTransactions,
+                )
+                onLoaded(null)
+            }.onFailure { onLoaded("读取可添加流水失败：${it.message}") }
         }
     }
 
     /** 把一条已有流水挂入本组（组内条目等价可见） */
     fun linkExpenseToGroup(txnId: Long, onResult: (String?) -> Unit) {
         viewModelScope.launch {
+            if (_ui.value.editingId == null) {
+                val selected = _ui.value.linkCandidates.firstOrNull { it.transaction.id == txnId }?.transaction
+                    ?: run { onResult("找不到所选流水"); return@launch }
+                val gid = _ui.value.pendingGroupId ?: selected.groupId ?: txnRepo.createGroup(selected)
+                if (selected.groupId != gid) txnRepo.setTxnGroup(selected.id, gid)
+                _ui.value = _ui.value.copy(
+                    pendingGroupId = gid,
+                    groupId = gid,
+                    pendingExpenseLinks = (_ui.value.pendingExpenseLinks.filterNot { it.id == txnId } + selected),
+                    groupTransactions = txnRepo.getGroupTransactions(gid),
+                )
+                persistDraft()
+                onResult(null)
+                return@launch
+            }
             val gid = ensureGroup() ?: run { onResult("请先保存流水"); return@launch }
             txnRepo.setTxnGroup(txnId, gid)
             reloadDetails()
@@ -426,36 +475,6 @@ class RecordViewModel(
     fun unlinkExpenseFromGroup(txnId: Long) {
         viewModelScope.launch {
             txnRepo.setTxnGroup(txnId, null)
-            reloadDetails()
-        }
-    }
-
-    /** 加载可标记为 A钱条 / 报销条的候选收入流水（打开选择对话框时调用） */
-    fun loadRoleCandidates() {
-        viewModelScope.launch {
-            val id = ensureSaved() ?: return@launch
-            val s = _ui.value
-            val gid = ensureGroup() ?: return@launch
-            _ui.value = _ui.value.copy(
-                roleLinkCandidates = txnRepo.getRoleLinkCandidates(s.bookId, id, gid),
-            )
-        }
-    }
-
-    /** 把一条已有收入流水标记为本组 A钱条 / 报销条 */
-    fun markEntryRole(txnId: Long, role: TxnRole, onResult: (String?) -> Unit) {
-        viewModelScope.launch {
-            val gid = ensureGroup() ?: run { onResult("请先保存流水"); return@launch }
-            txnRepo.markEntryRole(txnId, role, gid)
-            reloadDetails()
-            onResult(null)
-        }
-    }
-
-    /** A钱条 / 报销条移出本组（角色归普通流水，流水本身保留） */
-    fun clearEntryRole(txnId: Long) {
-        viewModelScope.launch {
-            txnRepo.clearEntryRole(txnId)
             reloadDetails()
         }
     }
@@ -524,10 +543,7 @@ class RecordViewModel(
             val gid = detail.transaction.groupId ?: detail.transaction.id
             _ui.value = _ui.value.copy(
                 refunds = detail.refunds,
-                // A钱条 / 报销条：组内带角色标记的收入流水，任一组员上可见
-                groupAdvanceEntries = txnRepo.getGroupEntriesByRole(gid, TxnRole.ADVANCE),
-                groupReimburseEntries = txnRepo.getGroupEntriesByRole(gid, TxnRole.REIMBURSE),
-                groupExpenses = txnRepo.getGroupExpenses(gid, id),
+                groupTransactions = txnRepo.getGroupTransactions(gid),
                 groupId = detail.transaction.groupId,
                 attachments = detail.attachments,
             )

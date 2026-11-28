@@ -16,7 +16,6 @@ import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
-import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import kotlinx.coroutines.flow.Flow
 
@@ -232,14 +231,6 @@ interface TransactionDao {
     @Query("SELECT COALESCE(SUM(amount), 0) FROM refund_records WHERE transactionId = :txnId")
     suspend fun sumRefunds(txnId: Long): Long?
 
-    /** 区间内某角色的收入条目合计（A钱 / 报销条按自身业务日期归档） */
-    @Query(
-        """SELECT COALESCE(SUM(amount), 0) FROM transactions
-             WHERE bookId = :bookId AND type = 'INCOME' AND entryRole = :role
-               AND businessDate >= :start AND businessDate <= :end""",
-    )
-    suspend fun sumIncomeRoleInRange(bookId: Long, role: TxnRole, start: Long, end: Long): Long
-
     /** 区间内的支出，按分类汇总（金额合计；退款/报销通过子表另行汇总） */
     @Query(
         """SELECT categoryId AS categoryId, COALESCE(SUM(amount), 0) AS total
@@ -306,36 +297,13 @@ interface TransactionDao {
 
     // ---------- 条目组（v1.7）：支出条 / A钱条 / 报销条组内共享 ----------
 
-    /** 组内全部 A钱条 / 报销条：带角色标记且组号命中的收入流水 */
-    @Query(
-        """SELECT * FROM transactions
-             WHERE type = 'INCOME' AND entryRole = :role AND groupId = :gid
-             ORDER BY businessDate DESC, id DESC""",
-    )
-    suspend fun getGroupEntriesByRole(gid: Long, role: TxnRole): List<TransactionEntity>
+    @Query("SELECT * FROM transactions WHERE groupId = :gid ORDER BY type, businessDate DESC, id DESC")
+    suspend fun getGroupTransactions(gid: Long): List<TransactionEntity>
 
-    /** 组内其他支出条（不含当前流水） */
-    @Query("SELECT * FROM transactions WHERE groupId = :gid AND id != :excludeId AND type = 'EXPENSE'")
-    suspend fun getGroupExpenses(gid: Long, excludeId: Long): List<TransactionEntity>
+    @Query("UPDATE transactions SET groupId = :newGid WHERE groupId = :oldGid")
+    suspend fun mergeGroups(oldGid: Long, newGid: Long)
 
-    /** 可加入本组的流水候选：同账本、同类型、普通角色、非本组 */
-    @Query(
-        """SELECT * FROM transactions WHERE bookId = :bookId AND type = :type
-             AND entryRole = 'NORMAL' AND id != :excludeId AND (groupId IS NULL OR groupId != :gid)""",
-    )
-    suspend fun getLinkCandidates(bookId: Long, excludeId: Long, gid: Long, type: TxnType): List<TransactionEntity>
-
-    /** 可标记为 A钱条 / 报销条的候选：同账本普通收入流水、非本组 */
-    @Query(
-        """SELECT * FROM transactions WHERE bookId = :bookId AND type = 'INCOME'
-             AND entryRole = 'NORMAL' AND id != :excludeId AND (groupId IS NULL OR groupId != :gid)
-             ORDER BY businessDate DESC, id DESC""",
-    )
-    suspend fun getRoleLinkCandidates(bookId: Long, excludeId: Long, gid: Long): List<TransactionEntity>
-
-    /** 设置流水的条目角色与组号（A钱条 / 报销条 = 角色收入流水；NORMAL 且组号 null = 移出） */
-    @Query("UPDATE transactions SET entryRole = :role, groupId = :gid WHERE id = :txnId")
-    suspend fun setTxnRoleAndGroup(txnId: Long, role: TxnRole, gid: Long?)
+    /** 把普通流水挂入某组；候选筛选在仓库层统一处理。 */
 
     @Delete
     suspend fun deleteAttachment(attachment: AttachmentEntity)
