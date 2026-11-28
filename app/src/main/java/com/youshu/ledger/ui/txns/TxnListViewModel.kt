@@ -15,6 +15,7 @@ import com.youshu.ledger.data.local.entity.effectiveTimeMillis
 import com.youshu.ledger.domain.util.toLocalDate
 import com.youshu.ledger.ui.common.DayGroup
 import com.youshu.ledger.ui.common.TxnDisplay
+import com.youshu.ledger.ui.common.toTxnDisplay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted

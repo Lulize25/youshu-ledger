@@ -212,6 +212,53 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
     }
 }
 
+/** v11 → v12：统一关联流水，移除 A钱/报销专属角色列；已有成员及小组关系原样保留。 */
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE `refund_records_backup` AS SELECT * FROM `refund_records`")
+        db.execSQL("CREATE TABLE `attachments_backup` AS SELECT * FROM `attachments`")
+        db.execSQL("DROP TABLE `refund_records`")
+        db.execSQL("DROP TABLE `attachments`")
+        db.execSQL("ALTER TABLE `transactions` RENAME TO `transactions_old`")
+        db.execSQL(
+            "CREATE TABLE `transactions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `bookId` INTEGER NOT NULL, " +
+                "`type` TEXT NOT NULL, `amount` INTEGER NOT NULL, `businessDate` INTEGER NOT NULL, `timeOfDay` INTEGER NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, `note` TEXT NOT NULL, `categoryId` INTEGER, `accountId` INTEGER NOT NULL, " +
+                "`toAccountId` INTEGER, `fee` INTEGER NOT NULL, `project` TEXT NOT NULL, `advanceAmount` INTEGER NOT NULL, " +
+                "`recoveredAmount` INTEGER NOT NULL, `groupId` INTEGER, " +
+                "FOREIGN KEY(`bookId`) REFERENCES `books`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL(
+            "INSERT INTO `transactions` (`id`,`bookId`,`type`,`amount`,`businessDate`,`timeOfDay`,`createdAt`,`note`," +
+                "`categoryId`,`accountId`,`toAccountId`,`fee`,`project`,`advanceAmount`,`recoveredAmount`,`groupId`) " +
+                "SELECT `id`,`bookId`,`type`,`amount`,`businessDate`,`timeOfDay`,`createdAt`,`note`,`categoryId`,`accountId`," +
+                "`toAccountId`,`fee`,`project`,`advanceAmount`,`recoveredAmount`,`groupId` FROM `transactions_old`",
+        )
+        db.execSQL("DROP TABLE `transactions_old`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_bookId` ON `transactions` (`bookId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_businessDate` ON `transactions` (`businessDate`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_accountId` ON `transactions` (`accountId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_transactions_categoryId` ON `transactions` (`categoryId`)")
+        db.execSQL(
+            "CREATE TABLE `refund_records` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, " +
+                "`amount` INTEGER NOT NULL, `accountId` INTEGER NOT NULL, `timeMillis` INTEGER NOT NULL, `note` TEXT NOT NULL, " +
+                "`createdAt` INTEGER NOT NULL, FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("INSERT INTO `refund_records` SELECT * FROM `refund_records_backup`")
+        db.execSQL("DROP TABLE `refund_records_backup`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_refund_records_transactionId` ON `refund_records` (`transactionId`)")
+        db.execSQL(
+            "CREATE TABLE `attachments` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, " +
+                "`relativePath` TEXT NOT NULL, FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) " +
+                "ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL("INSERT INTO `attachments` SELECT * FROM `attachments_backup`")
+        db.execSQL("DROP TABLE `attachments_backup`")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_attachments_transactionId` ON `attachments` (`transactionId`)")
+    }
+}
+
 val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -282,7 +329,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         AttachmentEntity::class,
         BudgetEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -309,7 +356,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                         MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                        MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                        MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
                     )
                     .build()
                     .also { instance = it }

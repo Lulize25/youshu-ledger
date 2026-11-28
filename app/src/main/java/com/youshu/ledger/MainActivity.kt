@@ -226,6 +226,7 @@ fun LedgerNavHost(
                     container = container,
                     txnId = entry.arguments?.getString("txnId")?.toLongOrNull(),
                     onDone = { nav.popBackStack() },
+                    onEdit = { nav.navigate(Routes.recordEdit(it)) },
                 )
             }
             composable(Routes.ACCOUNTS) {
