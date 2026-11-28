@@ -14,12 +14,6 @@ import androidx.room.PrimaryKey
 /** 流水类型：支出 / 收入 / 转账 */
 enum class TxnType { EXPENSE, INCOME, TRANSFER }
 
-/**
- * 条目角色（v1.7.2 起）：A钱条 / 报销条不再是独立子表，
- * 而是「带角色标记、关联进条目组（groupId）的收入流水」，与组内其他条目等价可见。
- */
-enum class TxnRole { NORMAL, ADVANCE, REIMBURSE }
-
 /** 分类类型：收入、支出各一棵独立的分类树 */
 enum class CategoryType { EXPENSE, INCOME }
 
@@ -85,7 +79,7 @@ data class CategoryEntity(
  * 支出/收入：categoryId + accountId 必填；
  * 转账：accountId（转出）+ toAccountId（转入）必填，fee 为可选手续费（分，从转出账户扣除）。
  * 退款为独立子表（见 RefundRecordEntity），可部分、可多次；
- * 报销 / A钱 = 带 [entryRole] 标记并关联进条目组（groupId）的收入流水（v1.7.2 起）。
+ * 组内关系统一由 groupId 表示，成员始终是普通流水。
  */
 @Entity(
     tableName = "transactions",
@@ -120,8 +114,6 @@ data class TransactionEntity(
      * null = 未入组（旧数据；行为同前，仅本流水可见）。组号 = 组内首个支出条的流水 id。
      */
     val groupId: Long? = null,
-    /** 条目角色（v1.7.2 起）：A钱条 / 报销条 = 关联进条目组的收入流水；NORMAL = 普通流水 */
-    val entryRole: TxnRole = TxnRole.NORMAL,
 )
 
 /**

@@ -5,7 +5,6 @@ import com.youshu.ledger.data.local.entity.AttachmentEntity
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
 import com.youshu.ledger.data.local.entity.TransactionWithDetails
-import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import com.youshu.ledger.data.settings.SettingsStore
 import com.youshu.ledger.domain.balance.BalanceCalculator
@@ -23,6 +22,8 @@ class TransactionRepository(
     private val dao: TransactionDao,
     private val settings: SettingsStore,
 ) {
+
+    suspend fun getTransaction(id: Long) = dao.getById(id)
 
     // ---------- 查询 ----------
 
@@ -106,19 +107,19 @@ class TransactionRepository(
 
     // ---------- 条目组（v1.7） ----------
 
-    /** 组内全部 A钱条 / 报销条（带角色标记的收入流水） */
-    suspend fun getGroupEntriesByRole(gid: Long, role: TxnRole) = dao.getGroupEntriesByRole(gid, role)
+    suspend fun getGroupTransactions(gid: Long) = dao.getGroupTransactions(gid)
 
-    /** 组内其他支出条 */
-    suspend fun getGroupExpenses(gid: Long, excludeId: Long) = dao.getGroupExpenses(gid, excludeId)
+    /** 合并已存在的组：所有成员迁移到当前组号。 */
+    suspend fun mergeGroups(oldGid: Long, newGid: Long) {
+        if (oldGid != newGid) {
+            dao.mergeGroups(oldGid, newGid)
+            settings.bumpDataVersion()
+        }
+    }
 
-    /** 可加入本组的流水候选（同类型普通流水） */
-    suspend fun getLinkCandidates(bookId: Long, excludeId: Long, gid: Long, type: TxnType) =
-        dao.getLinkCandidates(bookId, excludeId, gid, type)
-
-    /** 可标记为 A钱条 / 报销条的候选（同账本普通收入流水） */
-    suspend fun getRoleLinkCandidates(bookId: Long, excludeId: Long, gid: Long) =
-        dao.getRoleLinkCandidates(bookId, excludeId, gid)
+    /** 候选统一为当前账本未在本组的流水，包含已有组员以支持合并小组。 */
+    suspend fun getGroupCandidates(bookId: Long, excludeId: Long, gid: Long) =
+        dao.getByBook(bookId).filter { it.transaction.id != excludeId && it.transaction.groupId != gid }
 
     /** 把流水的组号置为自身 id（成为组头），返回组号 */
     suspend fun createGroup(txn: TransactionEntity): Long {
@@ -129,22 +130,13 @@ class TransactionRepository(
 
     /** 把一条流水挂入组 / 移出组 */
     suspend fun setTxnGroup(txnId: Long, gid: Long?) {
-        dao.getById(txnId)?.let {
+        dao.getById(txnId)?.let { current ->
+            val oldGid = current.groupId
+            if (gid != null && oldGid != null && oldGid != gid) dao.mergeGroups(oldGid, gid)
+            val it = dao.getById(txnId) ?: current
             dao.update(it.copy(groupId = gid))
             settings.bumpDataVersion()
         }
-    }
-
-    /** 把一条收入流水标记为本组 A钱条 / 报销条（角色 + 组号） */
-    suspend fun markEntryRole(txnId: Long, role: TxnRole, gid: Long) {
-        dao.setTxnRoleAndGroup(txnId, role, gid)
-        settings.bumpDataVersion()
-    }
-
-    /** A钱条 / 报销条移出本组：角色归 NORMAL、组号清空（流水本身保留） */
-    suspend fun clearEntryRole(txnId: Long) {
-        dao.setTxnRoleAndGroup(txnId, TxnRole.NORMAL, null)
-        settings.bumpDataVersion()
     }
 
     // ---------- 附件 ----------

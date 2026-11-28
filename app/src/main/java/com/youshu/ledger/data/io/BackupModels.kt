@@ -8,7 +8,6 @@ import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.CategoryType
 import com.youshu.ledger.data.local.entity.RefundRecordEntity
 import com.youshu.ledger.data.local.entity.TransactionEntity
-import com.youshu.ledger.data.local.entity.TxnRole
 import com.youshu.ledger.data.local.entity.TxnType
 import kotlinx.serialization.Serializable
 
@@ -60,7 +59,6 @@ data class TransactionDto(
     val timeOfDay: Int = -1,              // v3 起：当天分钟数；旧备份无此字段，默认 -1
     val project: String = "",             // v6 起：项目名称；旧备份无此字段
     val groupId: Long? = null,            // v1.7 起：条目组号；旧备份无此字段
-    val entryRole: String = "NORMAL",     // v1.7.2 起：条目角色（A钱条/报销条）；旧备份默认 NORMAL
     val refunds: List<RefundDto> = emptyList(),
     val reimbursements: List<ReimburseDto> = emptyList(),  // v1.7.1 及以前的报销子表，恢复时转为报销条目流水
     val advances: List<AdvanceDto> = emptyList(),   // v1.7.1 及以前的代付子表，恢复时转为 A钱条目流水
@@ -123,10 +121,10 @@ fun BudgetEntity.toDto() = BudgetDto(id, bookId, categoryId, yearMonth, amount)
 fun BudgetDto.toEntity() = BudgetEntity(id, bookId, categoryId, yearMonth, amount)
 
 /**
- * v1.7.1 及更早备份的报销子表 → 报销条目流水（REIMBURSE 收入流水，挂入宿主条目组）。
+ * 兼容旧备份：报销子表记录转成普通收入流水并挂入宿主条目组。
  * 与数据库迁移 MIGRATION_10_11 同一口径。
  */
-fun ReimburseDto.toRoleTxn(host: TransactionDto): TransactionEntity {
+fun ReimburseDto.toGroupedTxn(host: TransactionDto): TransactionEntity {
     val millis = timeMillis ?: createdAt
     return TransactionEntity(
         id = 0, bookId = host.bookId, type = TxnType.INCOME, amount = amount,
@@ -135,12 +133,11 @@ fun ReimburseDto.toRoleTxn(host: TransactionDto): TransactionEntity {
         createdAt = createdAt, note = note, categoryId = null,
         accountId = accountId ?: host.accountId, toAccountId = null, fee = 0,
         groupId = host.groupId ?: host.id,
-        entryRole = TxnRole.REIMBURSE,
     )
 }
 
-/** v1.7.1 及更早备份的代付子表 → A钱条目流水（ADVANCE 收入流水；「谁」并入备注） */
-fun AdvanceDto.toRoleTxn(host: TransactionDto): TransactionEntity {
+/** 兼容旧备份：代付子表转成普通收入流水并挂入宿主条目组。 */
+fun AdvanceDto.toGroupedTxn(host: TransactionDto): TransactionEntity {
     val millis = timeMillis
     return TransactionEntity(
         id = 0, bookId = host.bookId, type = TxnType.INCOME, amount = amount ?: 0,
@@ -151,7 +148,6 @@ fun AdvanceDto.toRoleTxn(host: TransactionDto): TransactionEntity {
         categoryId = null,
         accountId = accountId ?: host.accountId, toAccountId = null, fee = 0,
         groupId = host.groupId ?: host.id,
-        entryRole = TxnRole.ADVANCE,
     )
 }
 

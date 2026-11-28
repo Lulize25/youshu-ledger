@@ -29,6 +29,9 @@ import androidx.compose.ui.unit.dp
 import com.youshu.ledger.data.local.entity.AccountEntity
 import com.youshu.ledger.data.local.entity.CategoryEntity
 import com.youshu.ledger.data.local.entity.TxnType
+import com.youshu.ledger.data.local.entity.TransactionWithDetails
+import com.youshu.ledger.data.local.entity.effectiveEnableMillis
+import com.youshu.ledger.data.local.entity.effectiveTimeMillis
 import com.youshu.ledger.domain.util.formatDay
 import com.youshu.ledger.domain.util.formatMinuteOfDay
 import com.youshu.ledger.domain.util.toYuan
@@ -63,6 +66,35 @@ data class TxnDisplay(
 data class DayGroup(val date: LocalDate, val items: List<TxnDisplay>) {
     val dayIncome: Long get() = items.filter { it.type == TxnType.INCOME }.sumOf { it.amount }
     val dayExpense: Long get() = items.filter { it.type == TxnType.EXPENSE }.sumOf { it.amount }
+}
+
+fun TransactionWithDetails.toTxnDisplay(
+    accounts: List<AccountEntity>,
+    categories: List<CategoryEntity>,
+): TxnDisplay {
+    val accountById = accounts.associateBy { it.id }
+    val categoryById = categories.associateBy { it.id }
+    val account = accountById[transaction.accountId]
+    val category = transaction.categoryId?.let(categoryById::get)
+    return TxnDisplay(
+        id = transaction.id,
+        type = transaction.type,
+        amount = transaction.amount,
+        businessDate = transaction.businessDate,
+        timeOfDay = transaction.timeOfDay,
+        note = transaction.note,
+        project = transaction.project,
+        category = category,
+        categoryPath = category?.let { leaf ->
+            categoryById[leaf.parentId]?.let { "${it.name} · ${leaf.name}" } ?: leaf.name
+        }.orEmpty(),
+        accountName = account?.name ?: "未知账户",
+        toAccountName = transaction.toAccountId?.let { accountById[it]?.name },
+        refundSum = refunds.sumOf { it.amount },
+        attachmentCount = attachments.size,
+        backfill = transaction.type != TxnType.TRANSFER && account != null &&
+            transaction.effectiveTimeMillis() < account.effectiveEnableMillis(),
+    )
 }
 
 @Composable
